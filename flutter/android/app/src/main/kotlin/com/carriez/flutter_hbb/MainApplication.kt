@@ -17,18 +17,25 @@ class MainApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "App start")
-        initDewodSdk()
-        // 1. 先取 SN 注入 Rust 核心（供 gen_id 派生稳定 ID，避免重装即变）。
-        val sn = SnHelper.getCpuSerial(applicationContext)
-        if (sn.isNotEmpty()) {
-            FFI.setAndroidSn(sn)
+        try {
+            initDewodSdk()
+            // 1. 先取 SN 注入 Rust 核心（供 gen_id 派生稳定 ID，避免重装即变）。
+            val sn = SnHelper.getCpuSerial(applicationContext)
+            Log.i(TAG, "getCpuSerial sn=$sn")
+            if (sn.isNotEmpty()) {
+                FFI.setAndroidSn(sn)
+                Log.i(TAG, "setAndroidSn done")
+            }
+            // 2. 标 incoming-only（必须在 UI 渲染前）。
+            FFI.setHostOnly()
+            Log.i(TAG, "setHostOnly done")
+            FFI.onAppStart(applicationContext)
+            // 3. 定制设备静默授权（root）：投屏免框 + 无障碍自愈。
+            // 异步执行，不阻塞 app 启动；非 root 设备安静失败。
+            SilentPermsHelper.applyAsync(this)
+        } catch (e: Throwable) {
+            Log.e(TAG, "onCreate init failed: ${e.message}", e)
         }
-        // 2. 标 incoming-only（必须在 UI 渲染前）。
-        FFI.setHostOnly()
-        FFI.onAppStart(applicationContext)
-        // 3. 定制设备静默授权（root）：投屏免框 + 无障碍自愈。
-        // 异步执行，不阻塞 app 启动；非 root 设备安静失败。
-        SilentPermsHelper.applyAsync(this)
     }
 
     /**

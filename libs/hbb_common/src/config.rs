@@ -1025,23 +1025,21 @@ impl Config {
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
     fn gen_id() -> Option<String> {
-        // Android：优先用 SN 派生稳定 ID（避免随机 ID 重装即变）。
-        // 取不到 SN（非定制设备/SDK 不可用）则回退随机 ID。
+        // Android：用 ro.boot.serialno 系统属性派生稳定 ID（避免随机 ID 重装即变）。
+        // 直接调 __system_property_get，不依赖 JNI 时序（比 SnHelper.getCpuSerial 更可靠）。
+        // 系统属性在进程启动时即可读，无时序竞争。
         #[cfg(target_os = "android")]
         {
-            let sn = ANDROID_DEVICE_SN.read().unwrap().clone();
+            let sn = Self::read_android_system_property("ro.boot.serialno");
             if !sn.is_empty() {
-                // 用 SN 的 FNV-1a 哈希映射到 1_000_000_000..2_000_000_000 区间，
-                // 保证同一 SN 生成同一 ID，且落在 RustDesk ID 常规数值范围内。
-                let mut h: u64 = 0xcbf29ce484222325;
-                for b in sn.as_bytes() {
-                    h = h.wrapping_mul(0x100000001b3);
-                    h ^= *b as u64;
-                }
-                let id = 1_000_000_000 + (h % 1_000_000_000) as u64;
-                log::info!("gen_id from sn: {} -> id {}", sn, id);
-                return Some(id.to_string());
+                return Some(Self::sn_to_id(&sn));
             }
+            // 备选：JNI 注入的 SN（MainApplication.setAndroidSn），覆盖 SDK 的 CPU 序列号
+            let sn2 = ANDROID_DEVICE_SN.read().unwrap().clone();
+            if !sn2.is_empty() {
+                return Some(Self::sn_to_id(&sn2));
+            }
+            log::warn!("gen_id: no SN available, fallback to random");
         }
         Self::get_auto_id()
     }
@@ -1065,6 +1063,47 @@ impl Config {
         } else {
             Self::get_auto_id()
         }
+    }
+
+    /// 用 SN 的 FNV-1a 哈希派生稳定 RustDesk ID（落在 1_000_000_000..2_000_000_000）。
+    fn sn_to_id(sn: &str) -> String {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in sn.as_bytes() {
+            h = h.wrapping_mul(0x100000001b3);
+            h ^= *b as u64;
+        }
+        let id = 1_000_000_000 + (h % 1_000_000_000) as u64;
+        log::info!("gen_id from sn: {} -> id {}", sn, id);
+        id.to_string()
+    }
+
+    /// Android：读系统属性（如 ro.boot.serialno）。
+    /// 用绝对路径 getprop，避免 app 进程 PATH 缺失找不到命令。
+    /// 同时 FFI 读 __system_property_get 作为备选。
+    #[cfg(target_os = "android")]
+    fn read_android_system_property(name: &str) -> String {
+        // 方式1：调 /system/bin/getprop（最可靠）
+        if let Ok(out) = std::process::Command::new("/system/bin/getprop").arg(name).output() {
+            let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !v.is_empty() {
+                return v;
+            }
+        }
+        // 方式2：FFI __system_property_get
+        extern "C" {
+            fn __system_property_get(
+                name: *const std::os::raw::c_char,
+                value: *mut std::os::raw::c_char,
+            ) -> std::os::raw::c_int;
+        }
+        let mut buf = [0u8; 92];
+        if let Ok(name_c) = std::ffi::CString::new(name) {
+            let n = unsafe { __system_property_get(name_c.as_ptr(), buf.as_mut_ptr() as *mut _) };
+            if n > 0 {
+                return String::from_utf8_lossy(&buf[..n as usize]).to_string();
+            }
+        }
+        String::new()
     }
 
     fn get_auto_id() -> Option<String> {

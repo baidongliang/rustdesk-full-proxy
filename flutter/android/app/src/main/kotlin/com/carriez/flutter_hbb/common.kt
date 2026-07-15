@@ -55,6 +55,8 @@ const val KEY_SHARED_PREFERENCES = "KEY_SHARED_PREFERENCES"
 const val KEY_START_ON_BOOT_OPT = "KEY_START_ON_BOOT_OPT"
 // 被控端定制：开机自启默认开启，此 key 仅用于排障时显式关闭（值为 true 时跳过自启）。
 const val KEY_START_ON_BOOT_OPT_DISABLE = "KEY_START_ON_BOOT_OPT_DISABLE"
+// 被控端设备 SN 缓存（SnHelper 首次取到后持久化，避免 SDK 二次调用失败）。
+const val KEY_DEVICE_SN = "KEY_DEVICE_SN"
 const val KEY_APP_DIR_CONFIG_PATH = "KEY_APP_DIR_CONFIG_PATH"
 
 @SuppressLint("ConstantLocale")
