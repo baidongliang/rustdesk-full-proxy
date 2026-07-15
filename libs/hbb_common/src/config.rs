@@ -86,6 +86,9 @@ lazy_static::lazy_static! {
 #[cfg(target_os = "android")]
 lazy_static::lazy_static! {
     pub static ref ANDROID_RUSTLS_PLATFORM_VERIFIER_INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    /// Android 设备 SN，由 MainApplication 启动时通过 JNI 写入（SnHelper.getCpuSerial）。
+    /// gen_id() 优先用它派生稳定的 RustDesk ID，避免随机 ID 重装即变。
+    pub static ref ANDROID_DEVICE_SN: RwLock<String> = RwLock::new(String::new());
 }
 
 lazy_static::lazy_static! {
@@ -1022,6 +1025,24 @@ impl Config {
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
     fn gen_id() -> Option<String> {
+        // Android：优先用 SN 派生稳定 ID（避免随机 ID 重装即变）。
+        // 取不到 SN（非定制设备/SDK 不可用）则回退随机 ID。
+        #[cfg(target_os = "android")]
+        {
+            let sn = ANDROID_DEVICE_SN.read().unwrap().clone();
+            if !sn.is_empty() {
+                // 用 SN 的 FNV-1a 哈希映射到 1_000_000_000..2_000_000_000 区间，
+                // 保证同一 SN 生成同一 ID，且落在 RustDesk ID 常规数值范围内。
+                let mut h: u64 = 0xcbf29ce484222325;
+                for b in sn.as_bytes() {
+                    h = h.wrapping_mul(0x100000001b3);
+                    h ^= *b as u64;
+                }
+                let id = 1_000_000_000 + (h % 1_000_000_000) as u64;
+                log::info!("gen_id from sn: {} -> id {}", sn, id);
+                return Some(id.to_string());
+            }
+        }
         Self::get_auto_id()
     }
 

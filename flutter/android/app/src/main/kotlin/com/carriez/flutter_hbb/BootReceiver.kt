@@ -34,6 +34,9 @@ class BootReceiver : BroadcastReceiver() {
             } else {
                 context.startService(it)
             }
+            // 开机自愈：清除可能残留的 InputService crashed 标记（退避期会阻止绑定），
+            // 确保开机后 input:true。root 不可用时安静失败（靠 deploy_silent_perms.sh 兜底）。
+            SilentPermsHelper.applyAsync(context)
         }
     }
 }

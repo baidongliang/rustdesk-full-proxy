@@ -15,6 +15,7 @@ object FFI {
     external fun init(ctx: Context)
     external fun onAppStart(ctx: Context)
     external fun setHostOnly()
+    external fun setAndroidSn(sn: String)
     external fun setClipboardManager(clipboardManager: RdClipboardManager)
     external fun startServer(app_dir: String, custom_client_config: String)
     external fun startService()

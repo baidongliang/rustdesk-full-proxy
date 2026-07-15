@@ -3109,6 +3109,21 @@ pub mod server_side {
             .insert("conn-type".to_owned(), "incoming".to_owned());
     }
 
+    /// Android 专用：写入设备 SN（由 SnHelper.getCpuSerial 取得），供 gen_id() 派生稳定 ID。
+    /// 必须在 Rust 核心 gen_id() 首次执行前调用（MainApplication.onCreate 最早处）。
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_ffi_FFI_setAndroidSn(
+        mut env: JNIEnv,
+        _class: JClass,
+        sn: JString,
+    ) {
+        let sn: String = env.get_string(&sn).map(|s| s.into()).unwrap_or_default();
+        if !sn.is_empty() {
+            *config::ANDROID_DEVICE_SN.write().unwrap() = sn.clone();
+            log::info!("set android sn for stable id: {}", sn);
+        }
+    }
+
     #[no_mangle]
     pub unsafe extern "system" fn Java_ffi_FFI_startService(_env: JNIEnv, _class: JClass) {
         log::debug!("startService from jvm");
