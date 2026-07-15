@@ -3096,6 +3096,19 @@ pub mod server_side {
         std::thread::spawn(move || start_server(true));
     }
 
+    /// 被控端构建专用：把 conn-type 标为 incoming，使 bind.isIncomingOnly() 返回 true，
+    /// 隐藏所有控制端 UI。由 MainApplication.onCreate 在 UI 渲染前最早调用，确保
+    /// HomePage.initPages() 读到的就是 incoming-only。
+    /// 控制端构建不调用此方法，因此不受影响。
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_ffi_FFI_setHostOnly(_env: JNIEnv, _class: JClass) {
+        log::info!("set host-only mode (conn-type=incoming)");
+        config::HARD_SETTINGS
+            .write()
+            .unwrap()
+            .insert("conn-type".to_owned(), "incoming".to_owned());
+    }
+
     #[no_mangle]
     pub unsafe extern "system" fn Java_ffi_FFI_startService(_env: JNIEnv, _class: JClass) {
         log::debug!("startService from jvm");

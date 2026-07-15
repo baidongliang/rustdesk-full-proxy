@@ -87,6 +87,16 @@
 
 > 关键事实:RustDesk 代码里**没有** `custom-id-server`,ID Server 与 Rendezvous Server 是同一个(hbbs),用的配置项是 `custom-rendezvous-server`(`libs/hbb_common/src/config.rs:2935`)。
 
+### 2.3 被控端形态说明
+
+100 台 Android 定制设备上的被控端是**无 UI 纯服务**形态,与业务 app **独立 APK、独立进程、独立包名**并存:
+
+- 设备屏幕始终显示业务 app,被控端只跑前台服务(`MainService`),开机自启、前台通知保活。
+- 定制设备拥有全部系统权限,无需向用户索取任何授权(静默授权方案待定制系统 SDK 到手后确认)。
+- 预设固定密码 + `approve-mode=password`,无人值守,主控端带密码直连。
+
+被控端的完整设计(无 UI 入口、开机自启、前台通知保活、`START_STICKY` 改造、静默授权三路径)见 **[CUSTOM_HOST_DESIGN.md](./CUSTOM_HOST_DESIGN.md)**。本文档聚焦整体部署与主控端。
+
 ---
 
 ## 三、改动清单
@@ -546,3 +556,33 @@ Future<void> startService() async {
 | 自建 hbbs/hbbr(Docker) | 运维 | 半天 |
 | 跨公网安全加固 | 配置+少量代码 | 1 天 |
 | **合计** | | **约 1.5-2 周** |
+
+### B.5 主控端与无 UI 被控端的协作关系
+
+被控端在定制设备上是无 UI 纯服务(详见 [CUSTOM_HOST_DESIGN.md](./CUSTOM_HOST_DESIGN.md)),两端通过业务后台间接协作,无直接 IPC:
+
+```
+┌─────────────────────────┐                ┌──────────────────────────┐
+│ 无 UI 被控端(每台设备)   │                │ 桌面主控端(Win/Mac)       │
+│  - 开机自启 MainService  │                │  - 登录业务后台           │
+│  - 自动 startService()   │                │  - GET /api/devices 拉列表│
+│  - 上报 {sn, rustdesk_id}│ ───① 注册 ───► │    (含 rustdesk_id + pwd)│
+│  - 周期心跳              │ ───② 心跳 ───► │                          │
+│  - 静默授权(免用户操作)  │                │  - 点设备 → connect(id,pwd)│
+│  - 常驻前台通知保活      │                │  - 走 hbbs/hbbr 连接被控端 │
+└─────────────────────────┘                └──────────────────────────┘
+              │                                          │
+              └──────── ③ hbbs/hbbr 中转 P2P/Relay ──────┘
+```
+
+**关键约定**:
+
+| 协作点 | 被控端责任 | 主控端责任 |
+|--------|-----------|-----------|
+| 设备识别 | 上报 `{sn, rustdesk_id}` 给后台,以 sn 为主键 | 从后台拉列表,用 rustdesk_id 发起连接 |
+| 密码 | 预设固定密码(`custom.txt` 预置 h1) | 从后台设备记录取 password,connect 时直传 |
+| 在线状态 | 周期心跳上报 last_seen | 列表按 last_seen 显示在线/离线 |
+| 连接发起 | 被动等待(无人值守) | 主动 connect |
+| 业务 UI | **无**(只跑服务) | 完整会话 UI(复用 RustDesk 现成) |
+
+被控端不上报密码给后台——密码由 `custom.txt` 统一预置(或后台下发,见改动点 3 方式 B),主控端从后台设备记录里取到的是密码明文(用于 connect),或干脆所有设备共用一个密码直接本地写死。

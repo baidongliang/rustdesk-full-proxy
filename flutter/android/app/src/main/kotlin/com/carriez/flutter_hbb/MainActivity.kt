@@ -16,7 +16,9 @@ import android.content.ServiceConnection
 import android.content.ClipboardManager
 import android.os.Bundle
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.view.WindowManager
 import android.media.MediaCodecInfo
@@ -102,6 +104,15 @@ class MainActivity : FlutterActivity() {
             _rdClipboardManager = RdClipboardManager(getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             FFI.setClipboardManager(_rdClipboardManager!!)
         }
+        // 被控端：延迟退到后台，避免过早退后台导致投屏授权 Activity 无法启动。
+        // 投屏授权完成（media:true）后再退，屏幕只留业务 app。
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                moveTaskToBack(false)
+            } catch (e: Exception) {
+                Log.w(logTag, "moveTaskToBack failed: ${e.message}")
+            }
+        }, 8000)
     }
 
     override fun onDestroy() {
@@ -273,6 +284,9 @@ class MainActivity : FlutterActivity() {
                 }
                 "on_voice_call_closed" -> {
                     onVoiceCallClosed()
+                }
+                "get_sn" -> {
+                    result.success(SnHelper.getCpuSerial(context))
                 }
                 else -> {
                     result.error("-1", "No such method", null)

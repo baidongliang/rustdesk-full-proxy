@@ -53,6 +53,8 @@ const val KEY_IS_SUPPORT_VOICE_CALL = "KEY_IS_SUPPORT_VOICE_CALL"
 
 const val KEY_SHARED_PREFERENCES = "KEY_SHARED_PREFERENCES"
 const val KEY_START_ON_BOOT_OPT = "KEY_START_ON_BOOT_OPT"
+// 被控端定制：开机自启默认开启，此 key 仅用于排障时显式关闭（值为 true 时跳过自启）。
+const val KEY_START_ON_BOOT_OPT_DISABLE = "KEY_START_ON_BOOT_OPT_DISABLE"
 const val KEY_APP_DIR_CONFIG_PATH = "KEY_APP_DIR_CONFIG_PATH"
 
 @SuppressLint("ConstantLocale")

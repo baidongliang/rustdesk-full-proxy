@@ -452,6 +452,15 @@ class AndroidChannel {
   static final kSyncAppDirConfigPath = "sync_app_dir";
 }
 
+/// 被控端定制常量。
+/// 注意：[kHostPresetPassword] 为本轮"先把流程走通"用的固定密码占位，
+/// 后期接入后端/统一密码方案后应改为从配置或后端下发。
+const String kHostPresetPassword = "xinzx2026";
+/// approve-mode 固定为 password（密码对即放行，无人值守，不弹同意框）。
+const String kHostApproveMode = "password";
+/// MethodChannel 方法名：取设备 SN（走定制系统 SDK）。
+const String kMethodGetSn = "get_sn";
+
 /// flutter/packages/flutter/lib/src/services/keyboard_key.dart -> _keyLabels
 /// see [LogicalKeyboardKey.keyLabel]
 const Map<int, String> logicalKeyMap = <int, String>{

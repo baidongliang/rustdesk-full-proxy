@@ -31,13 +31,16 @@ class DeviceListPage extends StatefulWidget {
 }
 
 class _DeviceListPageState extends State<DeviceListPage> {
-  // Hard-coded demo devices. Replace with a backend fetch later.
+  // Mock 设备列表（后端 API 未接入前的占位数据）。
+  // - password 与被控端预设密码（consts.dart 的 kHostPresetPassword）保持一致，
+  //   connect() 时自动带上，实现无人值守直连。
+  // - id/sn 为被控端真机数据（从 [host-report] 日志抓取）。
   final List<DemoDevice> _devices = const [
     DemoDevice(
-      name: '德沃测试设备',
-      sn: 'DWDEV202401090814',
-      id: '1404704701',
-      password: 'Aaa123456',
+      name: 'DWD68 定制设备',
+      sn: '309ea42475e26594',
+      id: '1077664162',
+      password: 'xinzx2026',
     ),
   ];
 

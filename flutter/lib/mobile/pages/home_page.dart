@@ -47,6 +47,10 @@ class HomePageState extends State<HomePage> {
 
   void initPages() {
     _pages.clear();
+    // 被控端（incoming-only）：无业务 UI，不显示任何 tab，服务由 runMobileApp 自动启动。
+    if (bind.isIncomingOnly()) {
+      return;
+    }
     if (!bind.isIncomingOnly()) {
       _pages.add(ConnectionPage(
         appBarActions: [],
@@ -61,6 +65,13 @@ class HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    // 被控端无 UI：pages 为空时显示透明占位，屏幕上看不到任何 RustDesk 界面。
+    if (_pages.isEmpty) {
+      return const Scaffold(
+        backgroundColor: Color.fromARGB(0, 0, 0, 0),
+        body: SizedBox.shrink(),
+      );
+    }
     return WillPopScope(
         onWillPop: () async {
           if (_selectedIndex != 0) {

@@ -346,7 +346,11 @@ class MainService : Service() {
                 requestMediaProjection()
             }
         }
-        return START_NOT_STICKY // don't use sticky (auto restart), the new service (from auto restart) will lose control
+        // 定制被控端：改为 START_REDELIVER_INTENT，让系统在被杀后自动重启服务并重投 intent。
+        // 原 START_NOT_STICKY 的限制根因是"重启后丢失崩溃前的 MediaProjection token"，但在
+        // 定制设备静默授权方案下，重启后能随时重新拿 token（见 PermissionRequestTransparentActivity
+        // / 静默授权分支），因此 sticky 重启可恢复完整投屏能力。
+        return START_REDELIVER_INTENT
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -360,6 +364,72 @@ class MainService : Service() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         startActivity(intent)
+        // 定制设备（root）：投屏授权框弹出后自动点击"开始"按钮，实现静默授权。
+        // 非定制设备（无 root）此线程会因 su 不可用而安静退出，回退到手动点击。
+        autoClickProjectionConsent()
+    }
+
+    /**
+     * 自动点击 MediaProjection 授权框的"开始"按钮。
+     *
+     * 仅在定制设备（root 可用）生效：弹框由 SystemUI 显示，按钮文字为"开始"/"Start now"。
+     * 通过 uiautomator dump 定位按钮坐标，再用 `su -c input tap` 点击。
+     * 最多重试 10 次（约 5 秒），点到或超时即停。无 root 时安静退出。
+     */
+    private fun autoClickProjectionConsent() {
+        thread {
+            if (!hasRoot()) return@thread
+            for (i in 1..10) {
+                try {
+                    Thread.sleep(500)
+                    // dump 当前 UI，找"开始"/"Start now"按钮坐标
+                    val dump = execRoot("uiautomator dump /dev/stdin 2>/dev/null")
+                    val coords = findConsentButtonBounds(dump)
+                    if (coords != null) {
+                        val (x, y) = coords
+                        Log.i(logTag, "auto-click projection consent at ($x,$y) try=$i")
+                        execRoot("input tap $x $y")
+                        return@thread
+                    }
+                } catch (e: Throwable) {
+                    Log.w(logTag, "autoClickProjectionConsent try=$i err: ${e.message}")
+                }
+            }
+            Log.w(logTag, "autoClickProjectionConsent: button not found after retries")
+        }
+    }
+
+    /** 检测设备是否有 root（su 可用）。 */
+    private fun hasRoot(): Boolean {
+        return try {
+            val p = Runtime.getRuntime().exec(arrayOf("which", "su"))
+            p.waitFor() == 0 && p.inputStream.bufferedReader().readText().isNotEmpty()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** 以 root 执行命令并返回输出。 */
+    private fun execRoot(cmd: String): String {
+        val p = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
+        val out = p.inputStream.bufferedReader().readText()
+        p.waitFor()
+        return out
+    }
+
+    /** 从 uiautomator dump 的 XML 中解析授权框"开始"按钮的中心坐标。 */
+    private fun findConsentButtonBounds(xml: String): Pair<Int, Int>? {
+        // 按钮文字：中文"开始"，英文"Start now" / "Start"
+        val pattern = Regex("""text="([^"]*(开始|Start now|Start)[^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"""")
+        for (m in pattern.findAll(xml)) {
+            val (lx, ly, rx, ry) = listOf(m.groupValues[3].toInt(), m.groupValues[4].toInt(),
+                                          m.groupValues[5].toInt(), m.groupValues[6].toInt())
+            // 过滤掉过小的节点（避免误匹配），取中心
+            if (rx - lx > 50 && ry - ly > 30) {
+                return Pair((lx + rx) / 2, (ly + ry) / 2)
+            }
+        }
+        return null
     }
 
     @SuppressLint("WrongConstant")

@@ -137,19 +137,21 @@ Future<void> initEnv(String appType) async {
 ///
 /// Only writes when the current value is empty, so a user's manual change is
 /// never overwritten on later launches.
+/// 固定的正式服务器配置（强制覆盖，不依赖用户/历史配置）。
+/// 规则：两端（控制端 + 被控端）永远使用这套配置，禁止被其他逻辑改动。
+const String kIdServer = '39.105.73.125';
+const String kRelayServer = '39.105.73.125:21117';
+const String kServerKey = '1s4V8gIN9q6G1mZh7T+d0f09Q0r1ccXlNYKdKmyEeFY=';
+
 void applyDefaultServerConfig() {
-  const idServer = '39.105.73.125';
-  const key = '1s4V8gIN9q6G1mZh7T+d0f09Q0r1ccXlNYKdKmyEeFY=';
   try {
-    if (bind.mainGetOptionSync(key: 'custom-rendezvous-server').isEmpty) {
-      bind.mainSetOption(key: 'custom-rendezvous-server', value: idServer);
-    }
-    if (bind.mainGetOptionSync(key: 'relay-server').isEmpty) {
-      bind.mainSetOption(key: 'relay-server', value: idServer);
-    }
-    if (bind.mainGetOptionSync(key: 'key').isEmpty) {
-      bind.mainSetOption(key: 'key', value: key);
-    }
+    // 强制覆盖：每次启动都写一遍，确保两端配置一致、不被残留配置干扰。
+    bind.mainSetOption(key: 'custom-rendezvous-server', value: kIdServer);
+    bind.mainSetOption(key: 'relay-server', value: kRelayServer);
+    bind.mainSetOption(key: 'key', value: kServerKey);
+    // 清除测试期遗留的 direct-server 配置（与正式服务器配置无关）。
+    bind.mainSetOption(key: 'direct-server', value: '');
+    bind.mainSetOption(key: 'direct-access-port', value: '');
   } catch (e) {
     debugPrint('applyDefaultServerConfig error: $e');
   }
@@ -207,11 +209,44 @@ void runMobileApp() async {
   checkUpdate();
   if (isAndroid) androidChannelInit();
   if (isAndroid) platformFFI.syncAndroidServiceAppDirConfigPath();
+  // 应用默认 hbbs/hbbr 服务器配置（被控端也需要注册到 hbbs，否则控制端连不上）。
+  applyDefaultServerConfig();
   draggablePositions.load();
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
+  // 被控端（incoming-only）：无 UI，自动启动被控服务，无需用户点击。
+  if (bind.isIncomingOnly()) {
+    try {
+      // 1. 设固定永久密码 + approve-mode=password（无人值守）。
+      await bind.mainSetPermanentPasswordWithResult(password: kHostPresetPassword);
+      await bind.mainSetOption(key: 'approve-mode', value: kHostApproveMode);
+      // 2. 自动启动被控服务。
+      await gFFI.serverModel.startService();
+      // 3. 取设备 SN 并打印（后端 API 待接入，本轮只打日志）。
+      _reportDeviceInfo();
+    } catch (e) {
+      debugPrint('host-only init error: $e');
+    }
+  }
   runApp(App());
   await initUniLinks();
+}
+
+/// 被控端设备信息上报（占位）。
+/// 本轮后端 API 未接入，只取 SN + RustDesk ID 打日志。
+/// 后续接入后端后，改为 HTTP POST {sn, rustdesk_id}。
+Future<void> _reportDeviceInfo() async {
+  try {
+    String sn = '';
+    if (isAndroid) {
+      final ret = await platformFFI.invokeMethod(kMethodGetSn);
+      sn = (ret ?? '').toString();
+    }
+    final id = await bind.mainGetMyId();
+    debugPrint('[host-report] sn=$sn, rustdesk_id=$id');
+  } catch (e) {
+    debugPrint('[host-report] error: $e');
+  }
 }
 
 void runMultiWindow(

@@ -14,6 +14,11 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 定制设备静默投屏：持有此系统权限的 app 调 createScreenCaptureIntent() 不弹授权框。
+         普通签名装不上，定制设备通过 adb root + pm grant 授予。 -->
+    <uses-permission android:name="android.permission.CAPTURE_VIDEO_OUTPUT" />
+    <!-- 静默写系统设置（启用无障碍等），定制设备 root 授予。 -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <queries>
         <intent>
