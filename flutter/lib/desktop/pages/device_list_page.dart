@@ -39,7 +39,7 @@ class _DeviceListPageState extends State<DeviceListPage> {
     DemoDevice(
       name: 'DWD68 定制设备',
       sn: '309ea42475e26594',
-      id: '1781366437',
+      id: '1697972170',
       password: 'xinzx2026',
     ),
   ];
