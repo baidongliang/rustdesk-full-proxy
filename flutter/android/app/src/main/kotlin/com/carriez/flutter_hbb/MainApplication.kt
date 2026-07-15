@@ -68,14 +68,20 @@ class MainApplication : Application() {
                     return@thread
                 }
                 val pkg = packageName
-                // 1. 投屏 appop
+                val svc = "$pkg/com.carriez.flutter_hbb.InputService"
+                // 1. 投屏 appop（定制系统自动放行的双保险）
                 execRoot("appops set $pkg PROJECT_MEDIA allow")
                 Log.i(TAG, "silent perm: PROJECT_MEDIA allow")
-                // 2. 无障碍：写 secure settings 启用 InputService
-                val svc = "$pkg/com.carriez.flutter_hbb.InputService"
-                execRoot("settings put secure enabled_accessibility_services '$svc'")
+                // 2. 无障碍自愈：先完全禁用（清除可能残留的 Crashed services 标记，
+                //    Android 一旦把无障碍服务标为 crashed 会进入退避期不再绑定），
+                //    间隔后再启用，确保系统重新发起绑定。
+                execRoot("settings put secure accessibility_enabled 0")
+                execRoot("settings delete secure enabled_accessibility_services")
+                Thread.sleep(2000)
                 execRoot("settings put secure accessibility_enabled 1")
-                Log.i(TAG, "silent perm: accessibility enabled ($svc)")
+                Thread.sleep(1000)
+                execRoot("settings put secure enabled_accessibility_services '$svc'")
+                Log.i(TAG, "silent perm: accessibility self-healed ($svc)")
             } catch (e: Throwable) {
                 Log.w(TAG, "applySilentPermissions err: ${e.message}")
             }
