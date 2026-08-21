@@ -650,6 +650,18 @@ impl Config {
                 }
             }
         }
+        #[cfg(target_os = "android")]
+        if id_valid {
+            if let Some(id) = Config::gen_id_from_android_sn() {
+                if config.id != id {
+                    log::info!("Migrate Android id from {} to stable id {}", config.id, id);
+                    config.id = id;
+                    config.key_confirmed = false;
+                    config.keys_confirmed = Default::default();
+                    store = true;
+                }
+            }
+        }
         if store {
             config.store();
         }
@@ -989,12 +1001,20 @@ impl Config {
     }
 
     pub fn set_id(id: &str) {
-        let mut config = CONFIG.write().unwrap();
-        if id == config.id {
-            return;
+        let changed = {
+            let mut config = CONFIG.write().unwrap();
+            if id == config.id {
+                false
+            } else {
+                log::info!("set_id: {} -> {}", config.id, id);
+                config.id = id.into();
+                config.store();
+                true
+            }
+        };
+        if changed {
+            Self::set_key_confirmed(false);
         }
-        config.id = id.into();
-        config.store();
     }
 
     pub fn set_nat_type(nat_type: i32) {
@@ -1025,19 +1045,11 @@ impl Config {
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
     fn gen_id() -> Option<String> {
-        // Android：用 ro.boot.serialno 系统属性派生稳定 ID（避免随机 ID 重装即变）。
-        // 直接调 __system_property_get，不依赖 JNI 时序（比 SnHelper.getCpuSerial 更可靠）。
-        // 系统属性在进程启动时即可读，无时序竞争。
+        // Android：用设备 SN 派生稳定 ID（避免随机 ID 重装即变）。
         #[cfg(target_os = "android")]
         {
-            let sn = Self::read_android_system_property("ro.boot.serialno");
-            if !sn.is_empty() {
-                return Some(Self::sn_to_id(&sn));
-            }
-            // 备选：JNI 注入的 SN（MainApplication.setAndroidSn），覆盖 SDK 的 CPU 序列号
-            let sn2 = ANDROID_DEVICE_SN.read().unwrap().clone();
-            if !sn2.is_empty() {
-                return Some(Self::sn_to_id(&sn2));
+            if let Some(id) = Self::gen_id_from_android_sn() {
+                return Some(id);
             }
             log::warn!("gen_id: no SN available, fallback to random");
         }
@@ -1065,31 +1077,46 @@ impl Config {
         }
     }
 
-    /// 用 SN 的 FNV-1a 哈希派生稳定 RustDesk ID（落在 1_000_000_000..2_000_000_000）。
-    fn sn_to_id(sn: &str) -> String {
-        let mut h: u64 = 0xcbf29ce484222325;
-        for b in sn.as_bytes() {
-            h = h.wrapping_mul(0x100000001b3);
-            h ^= *b as u64;
-        }
-        let id = 1_000_000_000 + (h % 1_000_000_000) as u64;
-        log::info!("gen_id from sn: {} -> id {}", sn, id);
-        id.to_string()
+    #[cfg(target_os = "android")]
+    fn gen_id_from_android_sn() -> Option<String> {
+        Self::android_device_sn().map(|sn| {
+            let id = Self::sn_to_id(&sn);
+            log::info!("gen_id_from_android_sn: {} -> id {}", sn, id);
+            id
+        })
     }
 
-    /// Android：读系统属性（如 ro.boot.serialno）。
-    /// 用绝对路径 getprop，避免 app 进程 PATH 缺失找不到命令。
-    /// 同时 FFI 读 __system_property_get 作为备选。
+    /// Android：取设备系统序列号（属性优先，其次 Kotlin 注入值）。
+    /// 供 lib.rs 的 get_uuid() 派生跨重装稳定的 uuid。
     #[cfg(target_os = "android")]
-    fn read_android_system_property(name: &str) -> String {
-        // 方式1：调 /system/bin/getprop（最可靠）
-        if let Ok(out) = std::process::Command::new("/system/bin/getprop").arg(name).output() {
-            let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !v.is_empty() {
-                return v;
+    pub fn android_device_sn() -> Option<String> {
+        for prop in ["ro.boot.serialno", "ro.serialno"] {
+            let sn = Self::read_android_system_property(prop);
+            if Self::is_valid_android_sn(&sn) {
+                log::info!("android_device_sn: {} len={} value={}", prop, sn.len(), sn);
+                return Some(sn);
             }
         }
-        // 方式2：FFI __system_property_get
+
+        let sn = ANDROID_DEVICE_SN.read().unwrap().clone();
+        if Self::is_valid_android_sn(&sn) {
+            log::info!("android_device_sn: injected len={} value={}", sn.len(), sn);
+            return Some(sn);
+        }
+        log::warn!("android_device_sn: no android sn available");
+        None
+    }
+
+    #[cfg(target_os = "android")]
+    fn is_valid_android_sn(sn: &str) -> bool {
+        let sn = sn.trim();
+        !sn.is_empty() && !sn.eq_ignore_ascii_case("unknown")
+    }
+
+    #[cfg(target_os = "android")]
+    fn read_android_system_property(name: &str) -> String {
+        // 方式1：FFI __system_property_get（无 fork，app 进程内安全；
+        // std::process::Command 在 ART 多线程进程里 fork 有挂死风险，只作兜底）。
         extern "C" {
             fn __system_property_get(
                 name: *const std::os::raw::c_char,
@@ -1103,7 +1130,43 @@ impl Config {
                 return String::from_utf8_lossy(&buf[..n as usize]).to_string();
             }
         }
+
+        // 方式2：调 /system/bin/getprop（部分定制系统 FFI 读不到时兜底）
+        if let Ok(out) = std::process::Command::new("/system/bin/getprop")
+            .arg(name)
+            .output()
+        {
+            let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !v.is_empty() {
+                return v;
+            }
+        }
         String::new()
+    }
+
+    /// 用 SN 派生稳定 RustDesk 自定义 ID。
+    ///
+    /// RustDesk custom id must match `^[a-zA-Z][\w-]{5,31}$`, so keep the
+    /// `DWDEV` prefix and use up to 27 normalized SN chars.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    fn sn_to_id(sn: &str) -> String {
+        const PREFIX: &str = "DWDEV";
+        const MAX_ID_LEN: usize = 32;
+        let mut normalized = sn
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .map(|c| c.to_ascii_uppercase())
+            .collect::<String>();
+        if normalized.starts_with(PREFIX) {
+            normalized.truncate(MAX_ID_LEN);
+            log::info!("gen_id from sn: {} -> id {}", sn, normalized);
+            return normalized;
+        }
+        let suffix_len = MAX_ID_LEN - PREFIX.len();
+        normalized.truncate(suffix_len);
+        let id = format!("{}{}", PREFIX, normalized);
+        log::info!("gen_id from sn: {} -> id {}", sn, id);
+        id
     }
 
     fn get_auto_id() -> Option<String> {
@@ -1153,14 +1216,26 @@ impl Config {
 
     pub fn set_key_confirmed(v: bool) {
         let mut config = CONFIG.write().unwrap();
-        if config.key_confirmed == v {
+        if v {
+            if config.key_confirmed {
+                return;
+            }
+            config.key_confirmed = true;
+            config.store();
             return;
         }
-        config.key_confirmed = v;
-        if !v {
-            config.keys_confirmed = Default::default();
+        let mut changed = false;
+        if config.key_confirmed {
+            config.key_confirmed = false;
+            changed = true;
         }
-        config.store();
+        if !config.keys_confirmed.is_empty() {
+            config.keys_confirmed = Default::default();
+            changed = true;
+        }
+        if changed {
+            config.store();
+        }
     }
 
     pub fn get_host_key_confirmed(host: &str) -> bool {
@@ -1263,10 +1338,14 @@ impl Config {
     pub fn get_id() -> String {
         let mut id = CONFIG.read().unwrap().id.clone();
         if id.is_empty() {
+            log::info!("get_id: empty config id, generating");
             if let Some(tmp) = Config::gen_id() {
                 id = tmp;
                 Config::set_id(&id);
+                log::info!("get_id: generated {}", id);
             }
+        } else {
+            log::debug!("get_id: {}", id);
         }
         id
     }
@@ -1339,8 +1418,16 @@ impl Config {
     pub fn update_id() {
         // to-do: how about if one ip register a lot of ids?
         let id = Self::get_id();
-        let mut rng = rand::thread_rng();
-        let new_id = rng.gen_range(1_000_000_000..2_000_000_000).to_string();
+        #[cfg(target_os = "android")]
+        let new_id = Self::gen_id().unwrap_or_else(|| {
+            rand::thread_rng()
+                .gen_range(1_000_000_000..2_000_000_000)
+                .to_string()
+        });
+        #[cfg(not(target_os = "android"))]
+        let new_id = rand::thread_rng()
+            .gen_range(1_000_000_000..2_000_000_000)
+            .to_string();
         Config::set_id(&new_id);
         log::info!("id updated from {} to {}", id, new_id);
     }
@@ -1721,6 +1808,8 @@ impl Config {
         if *lock == cfg {
             return false;
         }
+        let clear_trusted_devices = lock.password != cfg.password || lock.salt != cfg.salt;
+        let reset_key_confirmation = lock.id != cfg.id;
         *lock = cfg;
         lock.store();
         // Drop CONFIG lock before acquiring KEY_PAIR lock to avoid potential deadlock.
@@ -1729,6 +1818,12 @@ impl Config {
         drop(lock);
         #[cfg(target_os = "macos")]
         Self::invalidate_key_pair_cache_if_changed(&new_key_pair);
+        if clear_trusted_devices {
+            Self::clear_trusted_devices();
+        }
+        if reset_key_confirmation {
+            Self::set_key_confirmed(false);
+        }
         true
     }
 
@@ -3339,6 +3434,7 @@ impl Status {
 #[cfg(test)]
 mod tests {
     use super::{permanent_password::PERMANENT_PASSWORD_ENC_VERSION, *};
+    use crate::get_time;
 
     static CONFIG_STATE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -3619,6 +3715,52 @@ mod tests {
             assert_eq!(stored_id, updated_id);
             assert_eq!(Config::get().id, updated_id);
         });
+    }
+
+    #[test]
+    fn test_set_clears_trust_state_when_id_or_password_changes() {
+        let _guard = CONFIG_STATE_TEST_LOCK.lock().unwrap();
+        let _config_guard = ConfigFileRestoreGuard::new(Config::file());
+        let _config2_guard = ConfigFileRestoreGuard::new(Config::file_("2"));
+
+        let mut cfg = Config::default();
+        cfg.id = "123456789".to_owned();
+        cfg.password = "old-password".to_owned();
+        cfg.salt = "old-salt".to_owned();
+        cfg.key_confirmed = true;
+        cfg.keys_confirmed.insert("peer-a".to_owned(), true);
+
+        let trusted = TrustedDevice {
+            hwid: Bytes::from_static(b"hwid-1"),
+            time: get_time(),
+            id: "peer-a".to_owned(),
+            name: "peer-a".to_owned(),
+            platform: "android".to_owned(),
+        };
+
+        *CONFIG.write().unwrap() = cfg.clone();
+        *TRUSTED_DEVICES.write().unwrap() = (vec![trusted], true);
+        CONFIG2.write().unwrap().trusted_devices = "seed".to_owned();
+
+        let mut next = cfg.clone();
+        next.id = "987654321".to_owned();
+        next.password = "new-password".to_owned();
+        next.salt = "new-salt".to_owned();
+
+        assert!(Config::set(next));
+
+        let stored = Config::get();
+        assert_eq!(stored.id, "987654321");
+        assert!(!stored.key_confirmed);
+        assert!(stored.keys_confirmed.is_empty());
+        assert!(Config::get_trusted_devices().is_empty());
+    }
+
+    #[test]
+    fn test_sn_to_id_uses_dwdev_prefix_without_truncating_normal_sn() {
+        assert_eq!(Config::sn_to_id("DWDEV202604260020"), "DWDEV202604260020");
+        assert_eq!(Config::sn_to_id("202604260020"), "DWDEV202604260020");
+        assert!(crate::is_valid_custom_id("DWDEV202604260020"));
     }
 
     #[test]

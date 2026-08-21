@@ -59,3 +59,6 @@ vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart
 libsciter.dylib
 flutter/web/
+
+# 本地交付的安装包不入库
+/rustdesk-host-*.apk

@@ -255,7 +255,7 @@ where
 }
 
 pub fn is_valid_custom_id(id: &str) -> bool {
-    regex::Regex::new(r"^[a-zA-Z][\w-]{5,15}$")
+    regex::Regex::new(r"^[a-zA-Z][\w-]{5,31}$")
         .unwrap()
         .is_match(id)
 }
@@ -316,6 +316,32 @@ pub fn get_exe_time() -> SystemTime {
 /// - Windows shutdown: "The media is write protected. (os error 19)"
 /// - macOS (hard to reproduce, reproduced at login screen): "No matching IOPlatformUUID in `ioreg -rd1 -c IOPlatformExpertDevice` command"
 pub fn get_uuid() -> Vec<u8> {
+    // Android 被控端：uuid 默认取密钥对公钥，清数据/重装后即变，会被 hbbs 以
+    // UUID_MISMATCH 拒绝（ID 是 SN 派生的稳定值，uuid 不稳定 = 重装必挂）。
+    // 这里改为从设备 SN 确定性派生，保证跨重装稳定；取不到 SN 时回落原逻辑。
+    #[cfg(target_os = "android")]
+    {
+        static SN_UUID: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+        if let Some(uuid) = SN_UUID.get() {
+            return uuid.clone();
+        }
+        if let Some(sn) = config::Config::android_device_sn() {
+            let mut h1: u64 = 0xcbf29ce484222325;
+            let mut h2: u64 = 0x9e3779b97f4a7c15;
+            for b in sn.as_bytes() {
+                h1 = h1.wrapping_mul(0x100000001b3) ^ (*b as u64);
+                h2 = h2.wrapping_mul(0x100000001b3).wrapping_add(*b as u64);
+            }
+            let mut uuid = Vec::with_capacity(32);
+            for h in [h1, h2] {
+                uuid.extend_from_slice(&h.to_le_bytes());
+                uuid.extend_from_slice(&h.swap_bytes().to_le_bytes());
+            }
+            log::info!("uuid derived from android sn (stable across reinstall)");
+            let _ = SN_UUID.set(uuid.clone());
+            return uuid;
+        }
+    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -428,6 +454,12 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
     static INIT: std::sync::Once = std::sync::Once::new();
     #[allow(unused_mut)]
     let mut logger_holder: Option<flexi_logger::LoggerHandle> = None;
+    // Android 无 UI 启动时 FFI.init 早于 home 注入执行；若在 Once 内直接跳过会永久
+    // 消费 Once 导致日志再也无法初始化。这里在 Once 外判断，home 就绪后再次调用即可生效。
+    #[cfg(all(target_os = "android", not(debug_assertions)))]
+    if !config::Config::get_home().exists() {
+        return logger_holder;
+    }
     INIT.call_once(|| {
         #[cfg(debug_assertions)]
         {

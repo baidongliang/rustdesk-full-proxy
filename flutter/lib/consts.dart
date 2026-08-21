@@ -453,9 +453,10 @@ class AndroidChannel {
 }
 
 /// 被控端定制常量。
-/// 注意：[kHostPresetPassword] 为本轮"先把流程走通"用的固定密码占位，
-/// 后期接入后端/统一密码方案后应改为从配置或后端下发。
-const String kHostPresetPassword = "xinzx2026";
+/// [kHostPresetPassword] 为统一密码规则的回落值：SN 去前导字母后不足 6 位时，
+/// 两端（被控端 Rust / 控制端 Dart）一致回落到该值，保证任何 SN 都能对上密码。
+/// 与被控端 flutter_ffi.rs 的 SN 派生兜底保持同步修改。
+const String kHostPresetPassword = "00000000";
 /// approve-mode 固定为 password（密码对即放行，无人值守，不弹同意框）。
 const String kHostApproveMode = "password";
 /// MethodChannel 方法名：取设备 SN（走定制系统 SDK）。

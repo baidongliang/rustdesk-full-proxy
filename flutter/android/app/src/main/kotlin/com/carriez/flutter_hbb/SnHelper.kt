@@ -1,54 +1,98 @@
 package com.carriez.flutter_hbb
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
-import com.dewod.sdk.DwFirmwareInfo
 
 /**
  * 设备 SN 获取工具。
  *
- * 通过定制系统 SDK [DwFirmwareInfo.getCpuSerial] 读取 CPU 序列号作为设备 SN。
- *
- * 注意：
- * - 调用前需确保已完成 [MainApplication.initDewodSdk] 的安全程序注册，否则定制系统
- *   服务会拒绝。
- * - SDK 走定制系统隐藏服务，普通 Android 设备 / 模拟器上调不通会抛异常，这里统一
- *   try-catch 返回空串，避免上抛导致崩溃。
+ * 与业务 app 的 DeviceSerialUtil 保持一致：优先读取 Android 设备序列号
+ * [Build.getSerial] / [Build.SERIAL]，定制设备上应为 DWDEV...。
  */
 object SnHelper {
     private const val TAG = "SnHelper"
+    private const val UNKNOWN = "unknown"
 
     /**
-     * 获取设备 SN（CPU 序列号）。
+     * 获取设备 SN。
      *
-     * 带 SharedPreferences 缓存：首次成功取到后持久化，后续直接读缓存，
-     * 避免 SDK 单例状态导致二次调用失败（实测 dewod SDK 重启后 getCpuSerial 偶发返回空）。
+     * 带 SharedPreferences 缓存：优先读系统真实 SN，系统读取失败时才回退缓存过的
+     * DWDEV 设备 SN，避免 CPU 序列号污染 RustDesk ID。
      * @return SN 字符串；取不到（非定制系统环境）返回空串。
      */
     fun getCpuSerial(context: Context): String {
-        // 1. 先读缓存
         val prefs = context.getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
         val cached = prefs.getString(KEY_DEVICE_SN, "")
         if (!cached.isNullOrEmpty()) {
-            Log.d(TAG, "getCpuSerial from cache: $cached")
+            Log.d(TAG, "getCpuSerial cached candidate: $cached")
+        }
+
+        val sn = readDeviceSerial()
+        if (sn.isNotEmpty()) {
+            Log.i(TAG, "getDeviceSerialNumber: $sn")
+            cacheIfChanged(prefs, cached, sn, "system_serial")
+            return sn
+        }
+
+        if (!cached.isNullOrEmpty() && cached.startsWith("DWDEV")) {
+            Log.d(TAG, "getDeviceSerialNumber from cache fallback: $cached")
             return cached
         }
-        // 2. 缓存空，调 SDK 取
-        val sn = try {
-            val v = DwFirmwareInfo.getInstance(context).cpuSerial ?: ""
-            if (v.isEmpty()) {
-                Log.w(TAG, "getCpuSerial returned empty")
-            }
-            v
+
+        if (!cached.isNullOrEmpty()) {
+            Log.w(TAG, "ignore non-DWDEV cached sn: $cached")
+        }
+        return ""
+    }
+
+    private fun readDeviceSerial(): String {
+        val buildSerial = try {
+            Build.getSerial()
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Build.getSerial permission denied: ${e.message}")
+            ""
         } catch (e: Throwable) {
-            Log.w(TAG, "getCpuSerial failed: ${e.message}")
+            Log.w(TAG, "Build.getSerial failed: ${e.message}")
             ""
         }
-        // 3. 取到则缓存
-        if (sn.isNotEmpty()) {
-            prefs.edit().putString(KEY_DEVICE_SN, sn).apply()
-            Log.i(TAG, "getCpuSerial from SDK and cached: $sn")
+        normalize(buildSerial)?.let { return it }
+        normalize(Build.SERIAL)?.let { return it }
+        normalize(readProp("ro.boot.serialno"))?.let { return it }
+        normalize(readProp("ro.serialno"))?.let { return it }
+        Log.w(TAG, "getDeviceSerialNumber returned empty")
+        return ""
+    }
+
+    private fun readProp(name: String): String {
+        return try {
+            val p = Runtime.getRuntime().exec(arrayOf("/system/bin/getprop", name))
+            val out = p.inputStream.bufferedReader().readText().trim()
+            p.waitFor()
+            out
+        } catch (e: Throwable) {
+            Log.w(TAG, "readProp $name failed: ${e.message}")
+            ""
         }
-        return sn
+    }
+
+    private fun normalize(value: String?): String? {
+        val v = value?.trim().orEmpty()
+        if (v.isEmpty() || UNKNOWN.equals(v, ignoreCase = true)) {
+            return null
+        }
+        return v
+    }
+
+    private fun cacheIfChanged(
+        prefs: android.content.SharedPreferences,
+        cached: String?,
+        sn: String,
+        source: String,
+    ) {
+        if (cached != sn) {
+            prefs.edit().putString(KEY_DEVICE_SN, sn).apply()
+            Log.i(TAG, "getCpuSerial cached from $source: $sn")
+        }
     }
 }

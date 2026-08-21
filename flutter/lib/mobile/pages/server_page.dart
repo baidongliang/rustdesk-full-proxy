@@ -917,6 +917,13 @@ void androidChannelInit() {
             gFFI.serverModel.changeStatue(name, value);
             break;
           }
+        case "on_startup_health":
+          {
+            final payload = arguments as String;
+            debugPrint("from jvm:on_startup_health,$payload");
+            gFFI.serverModel.setStartupHealth(payload);
+            break;
+          }
         case "on_android_permission_result":
           {
             var type = arguments["type"] as String;

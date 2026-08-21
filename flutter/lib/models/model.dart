@@ -994,10 +994,11 @@ class FfiModel with ChangeNotifier {
   ) {
     if (type == 'error' &&
         title == 'Connection Error' &&
-        text == 'Remote desktop is offline' &&
-        _pi.isSet.isTrue) {
+        text == 'Remote desktop is offline') {
       // Auto retry for ~30s (server's peer offline threshold) when controlled peer's account changes
       // (e.g., signout, switch user, login into OS) causes temporary offline via websocket/tcp connection.
+      // It can also happen before peer info is initialized, when rendezvous still has stale/offline
+      // state for a just-started controlled side. Retry here so users do not have to click repeatedly.
       // The actual wait may exceed 30s (e.g., 20s elapsed + 16s next retry = 36s), which is acceptable
       // since the controlled side reconnects quickly after account changes.
       // Uses time-based check instead of _reconnects count because user can manually retry.

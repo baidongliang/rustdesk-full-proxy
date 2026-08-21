@@ -208,6 +208,18 @@ class MainActivity : FlutterActivity() {
                     )
                     result.success(true)
                 }
+                "repair_startup" -> {
+                    SilentPermsHelper.applyAsync(this@MainActivity, "flutter_repair")
+                    result.success(true)
+                }
+                "on_startup_health" -> {
+                    if (call.arguments is String) {
+                        Log.i(logTag, "startup health ${call.arguments as String}")
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
+                }
                 "stop_input" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                         InputService.ctx?.disableSelf()

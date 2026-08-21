@@ -32,6 +32,7 @@ class ServerModel with ChangeNotifier {
   bool _clipboardOk = false;
   bool _showElevation = false;
   bool hideCm = false;
+  String _startupHealth = "";
   int _connectStatus = 0; // Rendezvous Server status
   String _verificationMethod = "";
   String _temporaryPasswordLength = "";
@@ -65,6 +66,8 @@ class ServerModel with ChangeNotifier {
   bool get clipboardOk => _clipboardOk;
 
   bool get showElevation => _showElevation;
+
+  String get startupHealth => _startupHealth;
 
   int get connectStatus => _connectStatus;
 
@@ -483,23 +486,45 @@ class ServerModel with ChangeNotifier {
     debugPrint("changeStatue value $value");
     switch (name) {
       case "media":
+        final previous = _mediaOk;
         _mediaOk = value;
         if (value && !_isStart) {
           startService();
+        } else if (!value && previous && _isStart) {
+          _requestAndroidRepair();
         }
         break;
       case "input":
+        final previous = _inputOk;
         if (_inputOk != value) {
           bind.mainSetOption(
               key: kOptionEnableKeyboard,
               value: value ? defaultOptionYes : 'N');
         }
         _inputOk = value;
+        if (!value && previous && _isStart) {
+          _requestAndroidRepair();
+        }
         break;
       default:
         return;
     }
     notifyListeners();
+  }
+
+  void setStartupHealth(String value) {
+    if (_startupHealth == value) {
+      return;
+    }
+    _startupHealth = value;
+    notifyListeners();
+  }
+
+  void _requestAndroidRepair() {
+    if (!isAndroid || parent.target == null) {
+      return;
+    }
+    parent.target?.invokeMethod("repair_startup");
   }
 
   // force
@@ -686,6 +711,7 @@ class ServerModel with ChangeNotifier {
   scrollToBottom() {
     if (isDesktop) return;
     Future.delayed(Duration(milliseconds: 200), () {
+      if (!controller.hasClients) return;
       controller.animateTo(controller.position.maxScrollExtent,
           duration: Duration(milliseconds: 200),
           curve: Curves.fastLinearToSlowEaseIn);

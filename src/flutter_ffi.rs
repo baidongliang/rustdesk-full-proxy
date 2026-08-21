@@ -3085,7 +3085,71 @@ pub mod server_side {
         log::debug!("startServer from jvm");
         let mut env = env;
         if let Ok(app_dir) = env.get_string(&app_dir) {
-            *config::APP_DIR.write().unwrap() = app_dir.into();
+            let app_dir: String = app_dir.into();
+            *config::APP_DIR.write().unwrap() = app_dir.clone();
+            // Dart（native_model）正常运行时会把 home dir 设为外部存储目录；无 UI 启动
+            // 时 Dart 不运行，home 为空会导致 flexi_logger 直接跳过日志（排障无门）。
+            // 兜底为 app_dir（内部存储），保证 Rust 日志可落盘。
+            // 注意：锁必须在后续调用前释放——log_path() 内部会再读 APP_HOME_DIR，
+            // 持写锁跨调用会自锁（主线程 ANR）。
+            if config::APP_HOME_DIR.read().unwrap().is_empty() {
+                *config::APP_HOME_DIR.write().unwrap() = app_dir;
+            }
+            // 无 UI 被控端注册链路排障：android_logger 直接写 logcat（tag: rustdesk），
+            // 不依赖 home 注入时序；init_once 幂等，与 UI 模式互不冲突。
+            android_logger::init_once(
+                android_logger::Config::default()
+                    .with_max_level(log::LevelFilter::Info)
+                    .with_tag("rustdesk"),
+            );
+        }
+        // 无 UI 被控端：清数据/重装后 RustDesk2.toml 不存在，custom-rendezvous-server
+        // 为空时会注册到公共服务器（rs-ny.rustdesk.com），控制端在自建 hbbs 上查不到 ID；
+        // 且发起中继时 licence_key（= key 选项）为空会被 hbbs 以 LICENSE_MISMATCH 拒绝。
+        // 兜底为与 flutter/lib/main.dart applyDefaultServerConfig 一致的三件套，
+        // 仅在选项为空时生效（不覆盖用户已配置值）。
+        const DEFAULT_RENDEZVOUS_SERVER: &str = "39.105.73.125";
+        const DEFAULT_RELAY_SERVER: &str = "39.105.73.125:21117";
+        const DEFAULT_SERVER_KEY: &str = "1s4V8gIN9q6G1mZh7T+d0f09Q0r1ccXlNYKdKmyEeFY=";
+        {
+            let mut defaults = Vec::new();
+            if config::Config::get_option("custom-rendezvous-server").is_empty() {
+                defaults.push(("custom-rendezvous-server", DEFAULT_RENDEZVOUS_SERVER));
+            }
+            if config::Config::get_option("relay-server").is_empty() {
+                defaults.push(("relay-server", DEFAULT_RELAY_SERVER));
+            }
+            if config::Config::get_option("key").is_empty() {
+                defaults.push(("key", DEFAULT_SERVER_KEY));
+            }
+            // 无人值守：密码对即放行，不弹同意框（无 UI 下 Dart 不运行，此处兜底；
+            // 默认 Both 也能用密码过，但 password 模式语义明确且无需 CM）。
+            if config::Config::get_option("approve-mode").is_empty() {
+                defaults.push(("approve-mode", "password"));
+            }
+            for (k, v) in defaults {
+                log::info!("apply default server config {}={}", k, v);
+                config::Config::set_option(k.to_owned(), v.to_owned());
+            }
+        }
+        // 无 UI 被控端：Dart main() 不运行，永久密码需由 Rust 兜底，否则控制端带密码
+        // 连接会被拒（"密码不正确"）。统一规则：SN（DWDEV/DEDEV...）前缀后的数字
+        // 作为密码，与控制端 device_list_page 的派生规则保持一致；SN 不合规时两端
+        // 一致回落 "00000000"（与 consts.dart kHostPresetPassword 同步）。
+        let password = config::Config::android_device_sn()
+            .map(|sn| {
+                let digits = sn.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+                if digits.len() >= 6 {
+                    digits.to_owned()
+                } else {
+                    "00000000".to_owned()
+                }
+            })
+            .unwrap_or_else(|| "00000000".to_owned());
+        if config::Config::set_permanent_password(&password) {
+            log::info!("apply permanent password derived from sn");
+        } else {
+            log::warn!("failed to apply sn-derived permanent password");
         }
         if let Ok(custom_client_config) = env.get_string(&custom_client_config) {
             if !custom_client_config.is_empty() {
@@ -3120,7 +3184,14 @@ pub mod server_side {
         let sn: String = env.get_string(&sn).map(|s| s.into()).unwrap_or_default();
         if !sn.is_empty() {
             *config::ANDROID_DEVICE_SN.write().unwrap() = sn.clone();
-            log::info!("set android sn for stable id: {}", sn);
+            log::info!(
+                "set android sn for stable id: {} len={} dwdev={}",
+                sn,
+                sn.len(),
+                sn.starts_with("DWDEV")
+            );
+        } else {
+            log::warn!("setAndroidSn called with empty sn");
         }
     }
 

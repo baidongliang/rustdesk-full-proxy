@@ -22,6 +22,10 @@ class MainApplication : Application() {
             // 1. 先取 SN 注入 Rust 核心（供 gen_id 派生稳定 ID，避免重装即变）。
             val sn = SnHelper.getCpuSerial(applicationContext)
             Log.i(TAG, "getCpuSerial sn=$sn")
+            Log.i(
+                TAG,
+                "host sn candidate sn=$sn len=${sn.length} dwdev=${sn.startsWith("DWDEV")}"
+            )
             if (sn.isNotEmpty()) {
                 FFI.setAndroidSn(sn)
                 Log.i(TAG, "setAndroidSn done")
@@ -32,7 +36,7 @@ class MainApplication : Application() {
             FFI.onAppStart(applicationContext)
             // 3. 定制设备静默授权（root）：投屏免框 + 无障碍自愈。
             // 异步执行，不阻塞 app 启动；非 root 设备安静失败。
-            SilentPermsHelper.applyAsync(this)
+            SilentPermsHelper.applyAsync(this, "app_onCreate")
         } catch (e: Throwable) {
             Log.e(TAG, "onCreate init failed: ${e.message}", e)
         }
@@ -58,5 +62,5 @@ class MainApplication : Application() {
             Log.w(TAG, "registerSafeProgram failed: ${e.message}")
         }
     }
-}
 
+}

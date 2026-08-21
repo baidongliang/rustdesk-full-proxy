@@ -217,8 +217,9 @@ void runMobileApp() async {
   // 被控端（incoming-only）：无 UI，自动启动被控服务，无需用户点击。
   if (bind.isIncomingOnly()) {
     try {
-      // 1. 设固定永久密码 + approve-mode=password（无人值守）。
-      await bind.mainSetPermanentPasswordWithResult(password: kHostPresetPassword);
+      // 1. approve-mode=password（密码对即放行，无人值守，不弹同意框）。
+      //    永久密码不在这里设置——由被控端 Rust（startServer FFI）从 SN 派生并
+      //    在每次服务启动时幂等重置，任何路径在此改密都会破坏两端一致性。
       await bind.mainSetOption(key: 'approve-mode', value: kHostApproveMode);
       // 2. 自动启动被控服务。
       await gFFI.serverModel.startService();

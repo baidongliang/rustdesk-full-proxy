@@ -342,6 +342,11 @@ impl RendezvousMediator {
         match msg {
             Some(rendezvous_message::Union::RegisterPeerResponse(rpr)) => {
                 update_latency();
+                log::info!(
+                    "RegisterPeerResponse from {} request_pk={}",
+                    self.host,
+                    rpr.request_pk
+                );
                 if rpr.request_pk {
                     log::info!("request_pk received from {}", self.host);
                     self.register_pk(sink).await?;
@@ -349,6 +354,23 @@ impl RendezvousMediator {
             }
             Some(rendezvous_message::Union::RegisterPkResponse(rpr)) => {
                 update_latency();
+                let result = match rpr.result.enum_value() {
+                    Ok(register_pk_response::Result::OK) => "OK",
+                    Ok(register_pk_response::Result::UUID_MISMATCH) => "UUID_MISMATCH",
+                    Ok(register_pk_response::Result::NOT_DEPLOYED) => "NOT_DEPLOYED",
+                    Ok(register_pk_response::Result::ID_EXISTS) => "ID_EXISTS",
+                    Ok(register_pk_response::Result::TOO_FREQUENT) => "TOO_FREQUENT",
+                    Ok(register_pk_response::Result::NOT_SUPPORT) => "NOT_SUPPORT",
+                    Ok(register_pk_response::Result::SERVER_ERROR) => "SERVER_ERROR",
+                    Ok(register_pk_response::Result::INVALID_ID_FORMAT) => "INVALID_ID_FORMAT",
+                    Err(_) => "UNKNOWN",
+                };
+                log::info!(
+                    "RegisterPkResponse from {} result={} keep_alive={}",
+                    self.host,
+                    result,
+                    rpr.keep_alive
+                );
                 match rpr.result.enum_value() {
                     Ok(register_pk_response::Result::OK) => {
                         Config::set_key_confirmed(true);
@@ -765,6 +787,15 @@ impl RendezvousMediator {
         let pk = Config::get_key_pair().1;
         let uuid = hbb_common::get_uuid();
         let id = Config::get_id();
+        log::info!(
+            "register_pk -> host={} id={} uuid={:?} serial={} no_register_device={} pk_len={}",
+            self.host,
+            id,
+            uuid,
+            Config::get_serial(),
+            Config::no_register_device(),
+            pk.len()
+        );
         msg_out.set_register_pk(RegisterPk {
             id,
             uuid: uuid.into(),
@@ -781,7 +812,10 @@ impl RendezvousMediator {
         {
             let mut solving = SOLVING_PK_MISMATCH.lock().await;
             if solving.is_empty() || *solving == self.host {
-                log::info!("UUID_MISMATCH received from {}", self.host);
+                log::info!(
+                    "UUID_MISMATCH received from {} (will refresh id and resend register_pk)",
+                    self.host
+                );
                 Config::set_key_confirmed(false);
                 Config::update_id();
                 *solving = self.host.clone();
@@ -806,13 +840,17 @@ impl RendezvousMediator {
             return self.register_pk(socket).await;
         }
         let id = Config::get_id();
-        log::trace!(
-            "Register my id {:?} to rendezvous server {:?}",
-            id,
-            self.addr,
-        );
         let mut msg_out = Message::new();
         let serial = Config::get_serial();
+        log::info!(
+            "register_peer -> host={} addr={:?} id={} serial={} key_confirmed={} host_key_confirmed={}",
+            self.host,
+            self.addr,
+            id,
+            serial,
+            Config::get_key_confirmed(),
+            Config::get_host_key_confirmed(&self.host_prefix)
+        );
         msg_out.set_register_peer(RegisterPeer {
             id,
             serial,

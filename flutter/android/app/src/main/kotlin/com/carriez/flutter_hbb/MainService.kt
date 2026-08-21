@@ -195,6 +195,7 @@ class MainService : Service() {
     private val wakeLock: PowerManager.WakeLock by lazy { powerManager.newWakeLock(PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "rustdesk:wakelock")}
 
     companion object {
+        @Volatile
         private var _isReady = false // media permission ready status
         private var _isStart = false // screen capture start status
         private var _isAudioStart = false // audio capture start status
@@ -214,6 +215,8 @@ class MainService : Service() {
 
     // video
     private var mediaProjection: MediaProjection? = null
+    @Volatile
+    private var lastProjectionRequestAt = 0L
     private var surface: Surface? = null
     private val sendVP9Thread = Executors.newSingleThreadExecutor()
     private var videoEncoder: MediaCodec? = null
@@ -232,6 +235,7 @@ class MainService : Service() {
         super.onCreate()
         Log.d(logTag,"MainService onCreate, sdk int:${Build.VERSION.SDK_INT} reuseVirtualDisplay:$reuseVirtualDisplay")
         FFI.init(this)
+        SilentPermsHelper.applyAsync(this, "service_onCreate")
         HandlerThread("Service", Process.THREAD_PRIORITY_BACKGROUND).apply {
             start()
             serviceLooper = looper
@@ -242,10 +246,20 @@ class MainService : Service() {
 
         // keep the config dir same with flutter
         val prefs = applicationContext.getSharedPreferences(KEY_SHARED_PREFERENCES, FlutterActivity.MODE_PRIVATE)
-        val configPath = prefs.getString(KEY_APP_DIR_CONFIG_PATH, "") ?: ""
+        var configPath = prefs.getString(KEY_APP_DIR_CONFIG_PATH, "") ?: ""
+        if (configPath.isEmpty()) {
+            // 无 UI 启动时 MainActivity/Dart 未运行过，KEY_APP_DIR_CONFIG_PATH 为空会让
+            // Rust 配置（ID/密钥/服务器选项）无处持久化，重装或清数据后即丢。
+            // 回落到与 Dart getApplicationDocumentsDirectory() 一致的 app_flutter 目录并回写。
+            configPath = getDir("flutter", MODE_PRIVATE).path
+            prefs.edit().putString(KEY_APP_DIR_CONFIG_PATH, configPath).apply()
+            Log.w(logTag, "config path missing, fallback to $configPath")
+        }
         FFI.startServer(configPath, "")
 
         createForegroundNotification()
+        // 投屏授权自愈：授权被前台 app 抢占/自动确认失败时周期性重试。
+        startProjectionWatchdog()
     }
 
     override fun onDestroy() {
@@ -328,6 +342,7 @@ class MainService : Service() {
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == ACT_INIT_MEDIA_PROJECTION_AND_SERVICE) {
             createForegroundNotification()
+            SilentPermsHelper.applyAsync(this, "service_start")
 
             if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
                 FFI.startService()
@@ -359,6 +374,7 @@ class MainService : Service() {
     }
 
     private fun requestMediaProjection() {
+        lastProjectionRequestAt = SystemClock.elapsedRealtime()
         val intent = Intent(this, PermissionRequestTransparentActivity::class.java).apply {
             action = ACT_REQUEST_MEDIA_PROJECTION
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -367,6 +383,32 @@ class MainService : Service() {
         // 定制设备（root）：投屏授权框弹出后自动点击"开始"按钮，实现静默授权。
         // 非定制设备（无 root）此线程会因 su 不可用而安静退出，回退到手动点击。
         autoClickProjectionConsent()
+    }
+
+    /**
+     * 投屏授权自愈看门狗。
+     *
+     * 场景：授权框被前台应用（如书柜业务 app）覆盖、SystemUI 自动确认失败、
+     * token 被系统回收等，都会导致 [_isReady] 一直为 false——控制端表现为
+     * "已连接 等待画面传输"卡死。这里在服务存活期间周期检查：未就绪且距上次
+     * 请求超过 15 秒就重新发起授权（定制 SystemUI 会自动确认）。
+     * 就绪后仅空转，开销可忽略。
+     */
+    private fun startProjectionWatchdog() {
+        thread(name = "projection-watchdog") {
+            while (true) {
+                try {
+                    Thread.sleep(5_000)
+                    if (_isReady) continue
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastProjectionRequestAt < 15_000) continue
+                    Log.w(logTag, "projection watchdog: not ready, re-request projection")
+                    requestMediaProjection()
+                } catch (e: Throwable) {
+                    Log.w(logTag, "projection watchdog err: ${e.message}")
+                }
+            }
+        }
     }
 
     /**

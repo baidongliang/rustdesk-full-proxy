@@ -17,7 +17,9 @@
     <!-- 定制设备静默投屏：持有此系统权限的 app 调 createScreenCaptureIntent() 不弹授权框。
          普通签名装不上，定制设备通过 adb root + pm grant 授予。 -->
     <uses-permission android:name="android.permission.CAPTURE_VIDEO_OUTPUT" />
-    <!-- 静默写系统设置（启用无障碍等），定制设备 root 授予。 -->
+    <!-- 静默写系统设置（启用无障碍等）。development 权限：
+         普通 adb 执行一次 `pm grant cn.xinzx.rustdesk.android android.permission.WRITE_SECURE_SETTINGS`
+         （无需 root），之后 app 内 SilentPermsHelper 自行读写并自愈无障碍。 -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <queries>
