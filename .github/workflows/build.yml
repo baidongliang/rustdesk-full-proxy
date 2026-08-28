@@ -45,19 +45,21 @@ jobs:
 
       # magnum-opus 的 build.rs 要求 VCPKG_ROOT(找不到直接 panic);
       # android 交叉编译需要 arm64-android triplet 的 opus
-      - name: Cache vcpkg opus (arm64-android)
+      - name: Cache vcpkg deps (arm64-android)
         uses: actions/cache@v4
         with:
           path: ~/vcpkg/installed
-          key: vcpkg-opus-arm64-android-v1
+          key: vcpkg-arm64-android-v2
 
-      - name: Set up vcpkg with opus
+      - name: Set up vcpkg with native deps
         run: |
           if [ ! -d "$HOME/vcpkg" ]; then
             git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
             "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           fi
-          "$HOME/vcpkg/vcpkg" install opus:arm64-android
+          # 仓库根目录有 vcpkg.json,classic 安装必须在 vcpkg 目录下执行
+          cd "$HOME/vcpkg"
+          ./vcpkg install opus libyuv libvpx aom --triplet arm64-android
           echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
 
       # 说明: 与本机构建差异——未启用 hwcodec 特性(目标设备硬件编解码不可用,
@@ -119,9 +121,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # magnum-opus 的 build.rs 在 macOS 上要求 homebrew 的 opus
+      # scrap/magnum-opus 的 build.rs 在 macOS(arm64) 走 homebrew: opus/libyuv/libvpx/aom
       - name: Install native deps
-        run: brew install opus pkg-config
+        run: brew install opus pkg-config libyuv libvpx aom
 
       - name: Build Rust library (macos)
         run: cargo build --locked --release --features flutter
@@ -160,10 +162,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # magnum-opus 的 build.rs 在 Windows 上走 vcpkg 找 opus(运行器自带 vcpkg,仅缺包)
-      - name: Install opus via vcpkg
+      - name: Install native deps via vcpkg
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install opus:x64-windows
+          # 仓库根目录有 vcpkg.json,classic 安装必须在 vcpkg 目录下执行
+          Set-Location "$env:VCPKG_INSTALLATION_ROOT"
+          & .\vcpkg.exe install opus libyuv libvpx aom --triplet x64-windows
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # windows/CMakeLists.txt 链接 ../../target/release/librustdesk.dll
