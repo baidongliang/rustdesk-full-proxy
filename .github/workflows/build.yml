@@ -1,0 +1,163 @@
+name: build
+
+on:
+  push:
+    branches: [master_dev]
+  workflow_dispatch:
+  tags: ['v*']
+
+env:
+  FLUTTER_VERSION: '3.24.5'
+  NDK_VERSION: '26.3.11579264'
+
+jobs:
+  android:
+    name: Android APK (arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Android NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      # 说明: 与本机构建差异——未启用 hwcodec 特性(目标设备硬件编解码不可用,
+      # 实际走 VP8 软编,功能等价),从而免去 vcpkg/ffmpeg 依赖,大幅提速 CI。
+      # 如需恢复: 加回 --features hwcodec 并在 CI 配置 vcpkg(arm64-android triplet)。
+      - name: Build Rust library (arm64-android)
+        env:
+          BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android: --sysroot=${{ env.ANDROID_NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+        run: |
+          cargo ndk --platform 21 --target aarch64-linux-android build --locked --release --features flutter
+          cp target/aarch64-linux-android/release/liblibrustdesk.so \
+             flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+
+      - name: Restore signing config from secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          cd flutter/android
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/desk-key.jks
+          cat > key.properties <<EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=desk-key.jks
+          EOF
+
+      - name: Build release APK
+        working-directory: flutter
+        run: flutter build apk --target-platform android-arm64 --release --obfuscate --split-debug-info ./split-debug-info
+
+      - name: Checksum
+        run: |
+          cd flutter/build/app/outputs/flutter-apk
+          sha256sum app-release.apk > app-release.apk.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-host-android
+          path: |
+            flutter/build/app/outputs/flutter-apk/app-release.apk
+            flutter/build/app/outputs/flutter-apk/app-release.apk.sha256
+
+  macos:
+    name: macOS (arm64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build Rust library (macos)
+        run: cargo build --locked --release --features flutter
+
+      - name: Build macOS app
+        working-directory: flutter
+        run: flutter build macos --release
+
+      - name: Zip app bundle
+        run: |
+          cd flutter/build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent RustDesk.app RustDesk-macos.zip
+          shasum -a 256 RustDesk-macos.zip > RustDesk-macos.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-host-macos
+          path: |
+            flutter/build/macos/Build/Products/Release/RustDesk-macos.zip
+            flutter/build/macos/Build/Products/Release/RustDesk-macos.zip.sha256
+
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # windows/CMakeLists.txt 链接 ../../target/release/librustdesk.dll
+      - name: Build Rust library (windows)
+        run: cargo build --locked --release --features flutter
+
+      - name: Build Windows app
+        working-directory: flutter
+        run: flutter build windows --release
+
+      - name: Zip release directory
+        shell: pwsh
+        run: |
+          $rel = "flutter/build/windows/x64/runner/Release"
+          if (-not (Test-Path $rel)) { $rel = "flutter/build/windows/runner/Release" }
+          Compress-Archive -Path "$rel/*" -DestinationPath "rustdesk-host-windows.zip"
+          $hash = (Get-FileHash rustdesk-host-windows.zip -Algorithm SHA256).Hash
+          "$hash  rustdesk-host-windows.zip" | Out-File rustdesk-host-windows.zip.sha256 -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-host-windows
+          path: |
+            rustdesk-host-windows.zip
+            rustdesk-host-windows.zip.sha256
