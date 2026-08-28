@@ -102,6 +102,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # magnum-opus 的 build.rs 在 macOS 上要求 homebrew 的 opus
+      - name: Install native deps
+        run: brew install opus pkg-config
+
       - name: Build Rust library (macos)
         run: cargo build --locked --release --features flutter
 
@@ -137,6 +141,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      # magnum-opus 的 build.rs 在 Windows 上走 vcpkg 找 opus(运行器自带 vcpkg,仅缺包)
+      - name: Install opus via vcpkg
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install opus:x64-windows
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # windows/CMakeLists.txt 链接 ../../target/release/librustdesk.dll
       - name: Build Rust library (windows)
