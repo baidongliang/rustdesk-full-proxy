@@ -3,8 +3,8 @@ name: build
 on:
   push:
     branches: [master_dev]
+    tags: ['v*']
   workflow_dispatch:
-  tags: ['v*']
 
 env:
   FLUTTER_VERSION: '3.24.5'
@@ -63,12 +63,12 @@ jobs:
         run: |
           cd flutter/android
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/desk-key.jks
-          cat > key.properties <<EOF
-          storePassword=$KEYSTORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=desk-key.jks
-          EOF
+          {
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "storeFile=desk-key.jks"
+          } > key.properties
 
       - name: Build release APK
         working-directory: flutter
