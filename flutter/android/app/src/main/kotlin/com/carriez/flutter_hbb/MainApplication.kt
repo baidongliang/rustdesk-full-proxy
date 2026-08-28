@@ -16,29 +16,26 @@ class MainApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "App start")
+        InputTraceLog.d(this, "App start")
         try {
             initDewodSdk()
             // 1. 先取 SN 注入 Rust 核心（供 gen_id 派生稳定 ID，避免重装即变）。
             val sn = SnHelper.getCpuSerial(applicationContext)
-            Log.i(TAG, "getCpuSerial sn=$sn")
-            Log.i(
-                TAG,
-                "host sn candidate sn=$sn len=${sn.length} dwdev=${sn.startsWith("DWDEV")}"
-            )
+            InputTraceLog.i(this, "getCpuSerial sn=$sn")
+            InputTraceLog.i(this, "host sn candidate sn=$sn len=${sn.length} dwdev=${sn.startsWith("DWDEV")}")
             if (sn.isNotEmpty()) {
                 FFI.setAndroidSn(sn)
-                Log.i(TAG, "setAndroidSn done")
+                InputTraceLog.i(this, "setAndroidSn done")
             }
             // 2. 标 incoming-only（必须在 UI 渲染前）。
             FFI.setHostOnly()
-            Log.i(TAG, "setHostOnly done")
+            InputTraceLog.i(this, "setHostOnly done")
             FFI.onAppStart(applicationContext)
             // 3. 定制设备静默授权（root）：投屏免框 + 无障碍自愈。
             // 异步执行，不阻塞 app 启动；非 root 设备安静失败。
             SilentPermsHelper.applyAsync(this, "app_onCreate")
         } catch (e: Throwable) {
-            Log.e(TAG, "onCreate init failed: ${e.message}", e)
+            InputTraceLog.e(this, "onCreate init failed: ${e.message}", e)
         }
     }
 
@@ -56,10 +53,10 @@ class MainApplication : Application() {
     private fun initDewodSdk() {
         try {
             val ok = DwSecure.getInstance(this).registerSafeProgram(SAFE_PROGRAM_KEY)
-            Log.i(TAG, "registerSafeProgram($SAFE_PROGRAM_KEY) -> $ok")
+            InputTraceLog.i(this, "registerSafeProgram($SAFE_PROGRAM_KEY) -> $ok")
         } catch (e: Throwable) {
             // 非定制系统环境（开发机/模拟器）会走到这里，属预期情况
-            Log.w(TAG, "registerSafeProgram failed: ${e.message}")
+            InputTraceLog.w(this, "registerSafeProgram failed: ${e.message}")
         }
     }
 

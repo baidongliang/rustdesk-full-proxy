@@ -107,6 +107,13 @@ class InputService : AccessibilityService() {
         val x = max(0, _x)
         val y = max(0, _y)
 
+        if (mask != LEFT_MOVE) {
+            InputTraceLog.d(
+                applicationContext,
+                "onMouseInput mask=$mask x=$x y=$y leftIsDown=$leftIsDown waitingLongPress=$isWaitingLongPress"
+            )
+        }
+
         if (mask == 0 || mask == LEFT_MOVE) {
             val oldX = mouseX
             val oldY = mouseY
@@ -254,7 +261,11 @@ class InputService : AccessibilityService() {
             isWheelActionsPolling = true
         }
         wheelActionsQueue.poll()?.let {
-            dispatchGesture(it, null, null)
+            val dispatched = dispatchGesture(it, null, null)
+            InputTraceLog.d(
+                applicationContext,
+                "consumeWheelActions dispatched=$dispatched queueSize=${wheelActionsQueue.size}"
+            )
             timer.purge()
             timer.schedule(object : TimerTask() {
                 override fun run() {
@@ -276,10 +287,10 @@ class InputService : AccessibilityService() {
             val longPressStroke = GestureDescription.StrokeDescription(path, 0, duration)
             val builder = GestureDescription.Builder()
             builder.addStroke(longPressStroke)
-            Log.d(logTag, "performClick x:$x y:$y time:$duration")
+            InputTraceLog.d(applicationContext, "performClick x:$x y:$y time:$duration")
             dispatchGesture(builder.build(), null, null)
         } catch (e: Exception) {
-            Log.e(logTag, "performClick, error:$e")
+            InputTraceLog.e(applicationContext, "performClick, error:$e")
         }
     }
 
@@ -338,11 +349,20 @@ class InputService : AccessibilityService() {
             stroke?.let {
                 val builder = GestureDescription.Builder()
                 builder.addStroke(it)
-                Log.d(logTag, "doDispatchGesture x:$x y:$y time:$duration")
-                dispatchGesture(builder.build(), null, null)
+                InputTraceLog.d(applicationContext, "doDispatchGesture x:$x y:$y time:$duration")
+                val dispatched = dispatchGesture(builder.build(), null, null)
+                InputTraceLog.d(
+                    applicationContext,
+                    "doDispatchGesture x=$x y=$y willContinue=$willContinue duration=$duration dispatched=$dispatched strokeReady=${stroke != null}"
+                )
             }
         } catch (e: Exception) {
-            Log.e(logTag, "doDispatchGesture, willContinue:$willContinue, error:$e")
+            InputTraceLog.e(applicationContext, "doDispatchGesture, willContinue:$willContinue, error:$e")
+            InputTraceLog.e(
+                applicationContext,
+                "doDispatchGesture failed willContinue=$willContinue x=$x y=$y duration=$duration",
+                e
+            )
         }
     }
 
@@ -375,10 +395,10 @@ class InputService : AccessibilityService() {
             )
             val builder = GestureDescription.Builder()
             builder.addStroke(stroke)
-            Log.d(logTag, "end gesture x:$x y:$y time:$duration")
+            InputTraceLog.d(applicationContext, "end gesture x:$x y:$y time:$duration")
             dispatchGesture(builder.build(), null, null)
         } catch (e: Exception) {
-            Log.e(logTag, "endGesture error:$e")
+            InputTraceLog.e(applicationContext, "endGesture error:$e")
         }
     }
 
@@ -416,7 +436,11 @@ class InputService : AccessibilityService() {
         } else {
         }
 
-        Log.d(logTag, "onKeyEvent $keyEvent textToCommit:$textToCommit")
+        InputTraceLog.d(applicationContext, "onKeyEvent $keyEvent textToCommit:$textToCommit")
+        InputTraceLog.d(
+            applicationContext,
+            "onKeyEvent mode=$keyboardMode down=${keyEvent.getDown()} press=${keyEvent.getPress()} hasSeq=${keyEvent.hasSeq()} hasChr=${keyEvent.hasChr()} textToCommit=$textToCommit"
+        )
 
         var ke: KeyEventAndroid? = null
         if (Build.VERSION.SDK_INT < 33 || textToCommit == null) {
@@ -433,6 +457,10 @@ class InputService : AccessibilityService() {
         if (Build.VERSION.SDK_INT >= 33) {
             getInputMethod()?.let { inputMethod ->
                 inputMethod.getCurrentInputConnection()?.let { inputConnection ->
+                    InputTraceLog.d(
+                        applicationContext,
+                        "onKeyEvent inputMethod=yes inputConnection=yes keyCode=${ke?.keyCode}"
+                    )
                     if (textToCommit != null) {
                         textToCommit?.let { text ->
                             inputConnection.commitText(text, 1, null)
@@ -446,14 +474,15 @@ class InputService : AccessibilityService() {
                             }
                         }
                     }
-                }
+                } ?: InputTraceLog.w(applicationContext, "onKeyEvent inputConnection is null")
             }
+            ?: InputTraceLog.w(applicationContext, "onKeyEvent inputMethod is null")
         } else {
             val handler = Handler(Looper.getMainLooper())
             handler.post {
                 ke?.let { event ->
                     val possibleNodes = possibleAccessibiltyNodes()
-                    Log.d(logTag, "possibleNodes:$possibleNodes")
+                    InputTraceLog.d(applicationContext, "possibleNodes:$possibleNodes")
                     for (item in possibleNodes) {
                         val success = trySendKeyEvent(event, item, textToCommit)
                         if (success) {
@@ -561,7 +590,7 @@ class InputService : AccessibilityService() {
 
         val rootInActiveWindow = getRootInActiveWindow()
 
-        Log.d(logTag, "focusInput:$focusInput focusAccessibilityInput:$focusAccessibilityInput rootInActiveWindow:$rootInActiveWindow")
+        InputTraceLog.d(applicationContext, "focusInput:$focusInput focusAccessibilityInput:$focusAccessibilityInput rootInActiveWindow:$rootInActiveWindow")
 
         if (focusInput != null) {
             if (focusInput.isFocusable() && focusInput.isEditable()) {
@@ -580,7 +609,7 @@ class InputService : AccessibilityService() {
         }
 
         val childFromFocusInput = findChildNode(focusInput)
-        Log.d(logTag, "childFromFocusInput:$childFromFocusInput")
+        InputTraceLog.d(applicationContext, "childFromFocusInput:$childFromFocusInput")
 
         if (childFromFocusInput != null) {
             insertAccessibilityNode(linkedList, childFromFocusInput)
@@ -590,7 +619,7 @@ class InputService : AccessibilityService() {
         if (childFromFocusAccessibilityInput != null) {
             insertAccessibilityNode(linkedList, childFromFocusAccessibilityInput)
         }
-        Log.d(logTag, "childFromFocusAccessibilityInput:$childFromFocusAccessibilityInput")
+        InputTraceLog.d(applicationContext, "childFromFocusAccessibilityInput:$childFromFocusAccessibilityInput")
 
         if (rootInActiveWindow != null) {
             insertAccessibilityNode(linkedList, rootInActiveWindow)
@@ -631,7 +660,11 @@ class InputService : AccessibilityService() {
 
         var success = false
 
-        Log.d(logTag, "existing text:$text textToCommit:$textToCommit textSelectionStart:$textSelectionStart textSelectionEnd:$textSelectionEnd")
+        InputTraceLog.d(applicationContext, "existing text:$text textToCommit:$textToCommit textSelectionStart:$textSelectionStart textSelectionEnd:$textSelectionEnd")
+        InputTraceLog.d(
+            applicationContext,
+            "trySendKeyEvent action=${event.action} keyCode=${event.keyCode} nodeClass=${node.className} pkg=${node.packageName} editable=${node.isEditable()} focusable=${node.isFocusable()} text=$text selection=$textSelectionStart,$textSelectionEnd commit=$textToCommit"
+        )
 
         if (textToCommit != null) {
             if ((textSelectionStart == -1) || (textSelectionEnd == -1)) {
@@ -654,7 +687,7 @@ class InputService : AccessibilityService() {
                 this.fakeEditTextForTextStateCalculation?.setText(text)
             }
             if (textSelectionStart != -1 && textSelectionEnd != -1) {
-                Log.d(logTag, "setting selection $textSelectionStart $textSelectionEnd")
+                InputTraceLog.d(applicationContext, "setting selection $textSelectionStart $textSelectionEnd")
                 this.fakeEditTextForTextStateCalculation?.setSelection(
                     textSelectionStart,
                     textSelectionEnd
@@ -670,15 +703,19 @@ class InputService : AccessibilityService() {
                 it.onPreDraw()
                 if (event.action == KeyEventAndroid.ACTION_DOWN) {
                     val succ = it.onKeyDown(event.getKeyCode(), event)
-                    Log.d(logTag, "onKeyDown $succ")
+                    InputTraceLog.d(applicationContext, "onKeyDown $succ")
                 } else if (event.action == KeyEventAndroid.ACTION_UP) {
                     val success = it.onKeyUp(event.getKeyCode(), event)
-                    Log.d(logTag, "keyup $success")
+                    InputTraceLog.d(applicationContext, "keyup $success")
                 } else {}
             }
 
             success = updateTextAndSelectionForAccessibiltyNode(node)
         }
+        InputTraceLog.d(
+            applicationContext,
+            "trySendKeyEvent result=$success action=${event.action} keyCode=${event.keyCode}"
+        )
         return success
     }
 
@@ -691,6 +728,7 @@ class InputService : AccessibilityService() {
                 it.toString()
             )
             success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            InputTraceLog.d(applicationContext, "updateTextForAccessibilityNode success=$success text=$it")
         }
         return success
     }
@@ -713,7 +751,11 @@ class InputService : AccessibilityService() {
                     selectionEnd
                 )
                 success = node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, arguments)
-                Log.d(logTag, "Update selection to $selectionStart $selectionEnd success:$success")
+                InputTraceLog.d(applicationContext, "Update selection to $selectionStart $selectionEnd success:$success")
+                InputTraceLog.d(
+                    applicationContext,
+                    "updateTextAndSelectionForAccessibilityNode selection=$selectionStart,$selectionEnd success=$success"
+                )
             }
         }
 
@@ -740,20 +782,29 @@ class InputService : AccessibilityService() {
         fakeEditTextForTextStateCalculation?.layoutParams = LayoutParams(100, 100)
         fakeEditTextForTextStateCalculation?.onPreDraw()
         val layout = fakeEditTextForTextStateCalculation?.getLayout()
-        Log.d(logTag, "fakeEditTextForTextStateCalculation layout:$layout")
-        Log.d(logTag, "onServiceConnected!")
+        InputTraceLog.d(applicationContext, "fakeEditTextForTextStateCalculation layout:$layout")
+        InputTraceLog.d(applicationContext, "onServiceConnected!")
+        SilentPermsHelper.dumpAccessibilityState(applicationContext, "InputService.onServiceConnected")
+        InputTraceLog.i(
+            applicationContext,
+            "onServiceConnected sdk=${Build.VERSION.SDK_INT} inputOpen=$isOpen flags=${info.flags} logFile=${InputTraceLog.filePath(applicationContext)}"
+        )
     }
 
     override fun onDestroy() {
         ctx = null
         // Keep this fallback even though onUnbind usually notifies first.
         notifyInputState()
+        SilentPermsHelper.dumpAccessibilityState(applicationContext, "InputService.onDestroy")
+        InputTraceLog.w(applicationContext, "onDestroy inputOpen=$isOpen")
         super.onDestroy()
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
         ctx = null
         notifyInputState()
+        SilentPermsHelper.dumpAccessibilityState(applicationContext, "InputService.onUnbind")
+        InputTraceLog.w(applicationContext, "onUnbind inputOpen=$isOpen intent=${intent?.action}")
         return super.onUnbind(intent)
     }
 

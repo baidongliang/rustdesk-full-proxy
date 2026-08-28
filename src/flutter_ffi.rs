@@ -3095,12 +3095,12 @@ pub mod server_side {
             if config::APP_HOME_DIR.read().unwrap().is_empty() {
                 *config::APP_HOME_DIR.write().unwrap() = app_dir;
             }
-            // 无 UI 被控端注册链路排障：android_logger 直接写 logcat（tag: rustdesk），
-            // 不依赖 home 注入时序；init_once 幂等，与 UI 模式互不冲突。
-            android_logger::init_once(
-                android_logger::Config::default()
-                    .with_max_level(log::LevelFilter::Info)
-                    .with_tag("rustdesk"),
+            // 无 UI 被控端注册链路排障：直接写本地文件日志，便于断网后拷走分析。
+            // `init_log()` 会把文件落到 APP_HOME_DIR 下的 RustDesk/Logs/...
+            let _ = hbb_common::init_log(false, "flutter_ffi");
+            log::info!(
+                "android local log dir: {}",
+                config::Config::log_path().display()
             );
         }
         // 无 UI 被控端：清数据/重装后 RustDesk2.toml 不存在，custom-rendezvous-server

@@ -65,10 +65,20 @@ class MainService : Service() {
     @Keep
     @RequiresApi(Build.VERSION_CODES.N)
     fun rustPointerInput(kind: Int, mask: Int, x: Int, y: Int) {
+        InputTraceLog.d(
+            applicationContext,
+            "rustPointerInput kind=$kind mask=$mask x=$x y=$y interactive=${powerManager.isInteractive} inputOpen=${InputService.isOpen} ctx=${InputService.ctx != null} isReady=$isReady isStart=$isStart"
+        )
+        if (InputService.ctx == null) {
+            InputTraceLog.w(
+                applicationContext,
+                "rustPointerInput dropped because InputService is not bound"
+            )
+        }
         // turn on screen with LEFT_DOWN when screen off
         if (!powerManager.isInteractive && (kind == 0 || mask == LEFT_DOWN)) {
             if (wakeLock.isHeld) {
-                Log.d(logTag, "Turn on Screen, WakeLock release")
+                InputTraceLog.d(applicationContext, "Turn on Screen, WakeLock release")
                 wakeLock.release()
             }
             Log.d(logTag,"Turn on Screen")
@@ -90,6 +100,16 @@ class MainService : Service() {
     @Keep
     @RequiresApi(Build.VERSION_CODES.N)
     fun rustKeyEventInput(input: ByteArray) {
+        InputTraceLog.d(
+            applicationContext,
+            "rustKeyEventInput len=${input.size} inputOpen=${InputService.isOpen} ctx=${InputService.ctx != null} isReady=$isReady isStart=$isStart"
+        )
+        if (InputService.ctx == null) {
+            InputTraceLog.w(
+                applicationContext,
+                "rustKeyEventInput dropped because InputService is not bound"
+            )
+        }
         InputService.ctx?.onKeyEvent(input)
     }
 
@@ -151,7 +171,7 @@ class MainService : Service() {
                             voiceCallRequestNotification(id, "Voice Call Request", username, peerId)
                         } else {
                             if (!audioRecordHandle.switchOutVoiceCall(mediaProjection)) {
-                                Log.e(logTag, "switchOutVoiceCall fail")
+                                InputTraceLog.e(applicationContext, "switchOutVoiceCall fail")
                                 MainActivity.flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                                     "type" to "custom-nook-nocancel-hasclose-error",
                                     "title" to "Voice call",
@@ -160,7 +180,7 @@ class MainService : Service() {
                         }
                     } else {
                         if (!audioRecordHandle.switchToVoiceCall(mediaProjection)) {
-                            Log.e(logTag, "switchToVoiceCall fail")
+                            InputTraceLog.e(applicationContext, "switchToVoiceCall fail")
                             MainActivity.flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                                 "type" to "custom-nook-nocancel-hasclose-error",
                                 "title" to "Voice call",
@@ -172,7 +192,7 @@ class MainService : Service() {
                 }
             }
             "stop_capture" -> {
-                Log.d(logTag, "from rust:stop_capture")
+                InputTraceLog.d(applicationContext, "from rust:stop_capture")
                 stopCapture()
             }
             "half_scale" -> {
@@ -253,7 +273,7 @@ class MainService : Service() {
             // 回落到与 Dart getApplicationDocumentsDirectory() 一致的 app_flutter 目录并回写。
             configPath = getDir("flutter", MODE_PRIVATE).path
             prefs.edit().putString(KEY_APP_DIR_CONFIG_PATH, configPath).apply()
-            Log.w(logTag, "config path missing, fallback to $configPath")
+            InputTraceLog.w(applicationContext, "config path missing, fallback to $configPath")
         }
         FFI.startServer(configPath, "")
 
@@ -325,7 +345,7 @@ class MainService : Service() {
     }
 
     override fun onBind(intent: Intent): IBinder {
-        Log.d(logTag, "service onBind")
+        InputTraceLog.d(applicationContext, "service onBind")
         return binder
     }
 
@@ -338,7 +358,7 @@ class MainService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d("whichService", "this service: ${Thread.currentThread()}")
+        InputTraceLog.d(applicationContext, "this service: ${Thread.currentThread()}")
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == ACT_INIT_MEDIA_PROJECTION_AND_SERVICE) {
             createForegroundNotification()
@@ -347,7 +367,7 @@ class MainService : Service() {
             if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
                 FFI.startService()
             }
-            Log.d(logTag, "service starting: ${startId}:${Thread.currentThread()}")
+            InputTraceLog.d(applicationContext, "service starting: ${startId}:${Thread.currentThread()}")
             val mediaProjectionManager =
                 getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
@@ -357,7 +377,7 @@ class MainService : Service() {
                 checkMediaPermission()
                 _isReady = true
             } ?: let {
-                Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
+                InputTraceLog.d(applicationContext, "getParcelableExtra intent null, invoke requestMediaProjection")
                 requestMediaProjection()
             }
         }
@@ -402,10 +422,10 @@ class MainService : Service() {
                     if (_isReady) continue
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastProjectionRequestAt < 15_000) continue
-                    Log.w(logTag, "projection watchdog: not ready, re-request projection")
+                    InputTraceLog.w(applicationContext, "projection watchdog: not ready, re-request projection")
                     requestMediaProjection()
                 } catch (e: Throwable) {
-                    Log.w(logTag, "projection watchdog err: ${e.message}")
+                    InputTraceLog.w(applicationContext, "projection watchdog err: ${e.message}")
                 }
             }
         }
@@ -429,15 +449,15 @@ class MainService : Service() {
                     val coords = findConsentButtonBounds(dump)
                     if (coords != null) {
                         val (x, y) = coords
-                        Log.i(logTag, "auto-click projection consent at ($x,$y) try=$i")
+                        InputTraceLog.i(applicationContext, "auto-click projection consent at ($x,$y) try=$i")
                         execRoot("input tap $x $y")
                         return@thread
                     }
                 } catch (e: Throwable) {
-                    Log.w(logTag, "autoClickProjectionConsent try=$i err: ${e.message}")
+                    InputTraceLog.w(applicationContext, "autoClickProjectionConsent try=$i err: ${e.message}")
                 }
             }
-            Log.w(logTag, "autoClickProjectionConsent: button not found after retries")
+            InputTraceLog.w(applicationContext, "autoClickProjectionConsent: button not found after retries")
         }
     }
 
@@ -480,7 +500,7 @@ class MainService : Service() {
             // TODO
             null
         } else {
-            Log.d(logTag, "ImageReader.newInstance:INFO:$SCREEN_INFO")
+            InputTraceLog.d(applicationContext, "ImageReader.newInstance:INFO:$SCREEN_INFO")
             imageReader =
                 ImageReader.newInstance(
                     SCREEN_INFO.width,
@@ -502,7 +522,7 @@ class MainService : Service() {
                         }
                     }, serviceHandler)
                 }
-            Log.d(logTag, "ImageReader.setOnImageAvailableListener done")
+            InputTraceLog.d(applicationContext, "ImageReader.setOnImageAvailableListener done")
             imageReader?.surface
         }
     }
@@ -520,12 +540,12 @@ class MainService : Service() {
             return true
         }
         if (mediaProjection == null) {
-            Log.w(logTag, "startCapture fail,mediaProjection is null")
+            InputTraceLog.w(applicationContext, "startCapture fail,mediaProjection is null")
             return false
         }
         
         updateScreenInfo(resources.configuration.orientation)
-        Log.d(logTag, "Start Capture")
+        InputTraceLog.d(applicationContext, "Start Capture")
         surface = createSurface()
 
         if (useVP9) {
@@ -536,9 +556,9 @@ class MainService : Service() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!audioRecordHandle.createAudioRecorder(false, mediaProjection)) {
-                Log.d(logTag, "createAudioRecorder fail")
+                InputTraceLog.d(applicationContext, "createAudioRecorder fail")
             } else {
-                Log.d(logTag, "audio recorder start")
+                InputTraceLog.d(applicationContext, "audio recorder start")
                 audioRecordHandle.startAudioRecorder()
             }
         }
@@ -551,7 +571,7 @@ class MainService : Service() {
 
     @Synchronized
     fun stopCapture() {
-        Log.d(logTag, "Stop Capture")
+        InputTraceLog.d(applicationContext, "Stop Capture")
         FFI.setFrameRawEnable("video",false)
         _isStart = false
         MainActivity.rdClipboardManager?.setCaptureStarted(_isStart)
@@ -587,7 +607,7 @@ class MainService : Service() {
     }
 
     fun destroy() {
-        Log.d(logTag, "destroy service")
+        InputTraceLog.d(applicationContext, "destroy service")
         _isReady = false
         _isAudioStart = false
 
@@ -622,9 +642,9 @@ class MainService : Service() {
     }
 
     private fun startRawVideoRecorder(mp: MediaProjection) {
-        Log.d(logTag, "startRawVideoRecorder,screen info:$SCREEN_INFO")
+        InputTraceLog.d(applicationContext, "startRawVideoRecorder,screen info:$SCREEN_INFO")
         if (surface == null) {
-            Log.d(logTag, "startRawVideoRecorder failed,surface is null")
+            InputTraceLog.d(applicationContext, "startRawVideoRecorder failed,surface is null")
             return
         }
         createOrSetVirtualDisplay(mp, surface!!)
@@ -658,7 +678,7 @@ class MainService : Service() {
                 )
             }
         } catch (e: SecurityException) {
-            Log.w(logTag, "createOrSetVirtualDisplay: got SecurityException, re-requesting confirmation");
+            InputTraceLog.w(applicationContext, "createOrSetVirtualDisplay: got SecurityException, re-requesting confirmation");
             // This initiates a prompt dialog for the user to confirm screen projection.
             requestMediaProjection()
         }
@@ -684,12 +704,12 @@ class MainService : Service() {
         }
 
         override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-            Log.e(logTag, "MediaCodec.Callback error:$e")
+            InputTraceLog.e(applicationContext, "MediaCodec.Callback error:$e")
         }
     }
 
     private fun createMediaCodec() {
-        Log.d(logTag, "MediaFormat.MIMETYPE_VIDEO_VP9 :$MIME_TYPE")
+        InputTraceLog.d(applicationContext, "MediaFormat.MIMETYPE_VIDEO_VP9 :$MIME_TYPE")
         videoEncoder = MediaCodec.createEncoderByType(MIME_TYPE)
         val mFormat =
             MediaFormat.createVideoFormat(MIME_TYPE, SCREEN_INFO.width, SCREEN_INFO.height)
@@ -703,7 +723,7 @@ class MainService : Service() {
         try {
             videoEncoder!!.configure(mFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         } catch (e: Exception) {
-            Log.e(logTag, "mEncoder.configure fail!")
+            InputTraceLog.e(applicationContext, "mEncoder.configure fail!")
         }
     }
 

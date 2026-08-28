@@ -36,21 +36,49 @@ object SilentPermsHelper {
     @Volatile
     private var lastApplyAt = 0L
 
+    fun dumpAccessibilityState(context: Context, reason: String) {
+        val svc = "${context.packageName}/$INPUT_SERVICE"
+        val enabledFlag = try {
+            Settings.Secure.getInt(context.contentResolver, "accessibility_enabled", 0)
+        } catch (_: Throwable) {
+            -1
+        }
+        val raw = try {
+            Settings.Secure.getString(context.contentResolver, "enabled_accessibility_services")
+        } catch (_: Throwable) {
+            null
+        }?.trim().orEmpty()
+        val enabledList = if (raw.isEmpty() || raw == "null") {
+            emptyList()
+        } else {
+            raw.split(':').map { it.trim() }.filter { it.isNotEmpty() }
+        }
+        val containsExpected = enabledList.any {
+            it == svc || it.endsWith("/$INPUT_SERVICE") || it.endsWith(INPUT_SERVICE)
+        }
+        InputTraceLog.i(
+            context,
+            "accessibility_state reason=$reason accessibility_enabled=$enabledFlag expected=$svc contains_expected=$containsExpected inputOpen=${InputService.isOpen} ctx=${InputService.ctx != null} serviceId=${InputService.ctx?.serviceInfo?.id} enabled_raw=$raw"
+        )
+    }
+
     /**
      * 应用静默授权（无障碍自愈）。异步执行（后台线程），不阻塞调用方。
      */
     fun applyAsync(context: Context, reason: String = "startup") {
         val now = SystemClock.elapsedRealtime()
         if (now - lastApplyAt < APPLY_THROTTLE_MS) {
-            Log.d(TAG, "applyAsync throttled reason=$reason")
+            InputTraceLog.d(context, "applyAsync throttled reason=$reason")
             return
         }
         lastApplyAt = now
+        InputTraceLog.i(context, "applyAsync start reason=$reason")
+        dumpAccessibilityState(context, "applyAsync:$reason")
         thread {
             try {
                 applySync(context, reason)
             } catch (e: Throwable) {
-                Log.w(TAG, "applyAsync err reason=$reason: ${e.message}")
+                InputTraceLog.e(context, "applyAsync err reason=$reason", e)
             }
         }
     }
@@ -66,15 +94,28 @@ object SilentPermsHelper {
         val secureWritable = canWriteSecureSettings(context)
         val attempts = if (root || secureWritable) 3 else 1
         var inputOpen = InputService.isOpen
+        InputTraceLog.i(
+            context,
+            "applySync start reason=$reason sn=$sn root=$root secureWritable=$secureWritable attempts=$attempts inputOpen=$inputOpen"
+        )
+        dumpAccessibilityState(context, "applySync:$reason:start")
 
         for (attempt in 1..attempts) {
             inputOpen = InputService.isOpen
+            InputTraceLog.d(
+                context,
+                "applySync attempt=$attempt beforeHeal inputOpen=$inputOpen"
+            )
             if (inputOpen) {
                 break
             }
             healAccessibility(context, pkg, preferDirectWrite = secureWritable)
             Thread.sleep(600)
             inputOpen = InputService.isOpen
+            InputTraceLog.d(
+                context,
+                "applySync attempt=$attempt afterHeal inputOpen=$inputOpen"
+            )
             if (inputOpen) {
                 break
             }
@@ -83,9 +124,9 @@ object SilentPermsHelper {
             }
         }
 
-        reportStartupHealth(reason, sn, root, secureWritable, inputOpen)
+        reportStartupHealth(context, reason, sn, root, secureWritable, inputOpen)
         if (!root && !secureWritable) {
-            Log.i(TAG, "skipped: no root / no WRITE_SECURE_SETTINGS reason=$reason")
+            InputTraceLog.i(context, "skipped: no root / no WRITE_SECURE_SETTINGS reason=$reason")
             return false
         }
         return inputOpen
@@ -100,12 +141,21 @@ object SilentPermsHelper {
         val current = readEnabledAccessibilityServices(context, preferDirectWrite)
         val filtered = current.filter { it != svc }
         val joined = (filtered + svc).distinct().joinToString(":")
+        InputTraceLog.d(
+            context,
+            "healAccessibility svc=$svc preferDirectWrite=$preferDirectWrite current=$current joined=$joined"
+        )
+        dumpAccessibilityState(context, "healAccessibility:before:$svc")
         putSecure(context, "accessibility_enabled", "0", preferDirectWrite)
         Thread.sleep(2000)
         putSecure(context, "accessibility_enabled", "1", preferDirectWrite)
         Thread.sleep(1000)
         putSecure(context, "enabled_accessibility_services", joined, preferDirectWrite)
-        Log.i(TAG, "accessibility healed ($svc) directWrite=$preferDirectWrite")
+        InputTraceLog.i(
+            context,
+            "accessibility healed svc=$svc directWrite=$preferDirectWrite"
+        )
+        dumpAccessibilityState(context, "healAccessibility:after:$svc")
     }
 
     /** 读取当前已启用的无障碍服务列表。 */
@@ -119,8 +169,10 @@ object SilentPermsHelper {
             execRoot("settings get secure enabled_accessibility_services")
         }?.trim().orEmpty()
         if (raw.isEmpty() || raw == "null") {
+            InputTraceLog.d(context, "readEnabledAccessibilityServices empty")
             return emptyList()
         }
+        InputTraceLog.d(context, "readEnabledAccessibilityServices raw=$raw")
         return raw.split(':').map { it.trim() }.filter { it.isNotEmpty() }
     }
 
@@ -128,11 +180,13 @@ object SilentPermsHelper {
     private fun putSecure(context: Context, key: String, value: String, preferDirectWrite: Boolean) {
         if (preferDirectWrite) {
             if (Settings.Secure.putString(context.contentResolver, key, value)) {
+                InputTraceLog.d(context, "putSecure direct success key=$key value=$value")
                 return
             }
-            Log.w(TAG, "direct put secure failed: $key, fallback to root")
+            InputTraceLog.w(context, "putSecure direct failed key=$key fallback=root")
         }
         execRoot("settings put secure $key '$value'")
+        InputTraceLog.d(context, "putSecure root success key=$key value=$value")
     }
 
     /** WRITE_SECURE_SETTINGS 是否已授予（adb pm grant 或系统签名）。 */
@@ -142,6 +196,7 @@ object SilentPermsHelper {
     }
 
     private fun reportStartupHealth(
+        context: Context,
         reason: String,
         sn: String,
         root: Boolean,
@@ -158,7 +213,7 @@ object SilentPermsHelper {
             put("service_start", MainService.isStart)
             put("timestamp", System.currentTimeMillis())
         }.toString()
-        Log.i(TAG, "startup_health $payload")
+        InputTraceLog.i(context, "startup_health $payload")
         Handler(Looper.getMainLooper()).post {
             MainActivity.flutterMethodChannel?.invokeMethod("on_startup_health", payload)
         }

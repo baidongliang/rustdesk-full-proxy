@@ -454,30 +454,59 @@ pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHand
     static INIT: std::sync::Once = std::sync::Once::new();
     #[allow(unused_mut)]
     let mut logger_holder: Option<flexi_logger::LoggerHandle> = None;
-    // Android 无 UI 启动时 FFI.init 早于 home 注入执行；若在 Once 内直接跳过会永久
-    // 消费 Once 导致日志再也无法初始化。这里在 Once 外判断，home 就绪后再次调用即可生效。
-    #[cfg(all(target_os = "android", not(debug_assertions)))]
+    // Android 无 UI 启动时，home 可能晚于第一次日志初始化；若在 Once 内直接跳过会
+    // 永久消费 Once 导致日志再也无法初始化。这里在 Once 外判断，home 就绪后再次调用
+    // 即可生效。
+    #[cfg(target_os = "android")]
     if !config::Config::get_home().exists() {
         return logger_holder;
     }
     INIT.call_once(|| {
         #[cfg(debug_assertions)]
         {
-            use env_logger::*;
-            init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn"));
+            #[cfg(target_os = "android")]
+            {
+                let mut path = config::Config::log_path();
+                if !_name.is_empty() {
+                    path.push(_name);
+                }
+                std::fs::create_dir_all(&path).ok();
+                use flexi_logger::*;
+                if let Ok(x) = Logger::try_with_env_or_str(
+                    "debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn",
+                ) {
+                    logger_holder = x
+                        .log_to_file(FileSpec::default().directory(path))
+                        .write_mode(if _is_async {
+                            WriteMode::Async
+                        } else {
+                            WriteMode::Direct
+                        })
+                        .format(opt_format)
+                        .rotate(
+                            Criterion::Age(Age::Day),
+                            Naming::Timestamps,
+                            Cleanup::KeepLogFiles(31),
+                        )
+                        .start()
+                        .ok();
+                }
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                use env_logger::*;
+                init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn"));
+            }
         }
         #[cfg(not(debug_assertions))]
         {
             // https://docs.rs/flexi_logger/latest/flexi_logger/error_info/index.html#write
             // though async logger more efficient, but it also causes more problems, disable it for now
             let mut path = config::Config::log_path();
-            #[cfg(target_os = "android")]
-            if !config::Config::get_home().exists() {
-                return;
-            }
             if !_name.is_empty() {
                 path.push(_name);
             }
+            std::fs::create_dir_all(&path).ok();
             use flexi_logger::*;
             if let Ok(x) = Logger::try_with_env_or_str("debug,reqwest=warn,rustls=warn,webrtc-sctp=warn,webrtc=warn") {
                 logger_holder = x

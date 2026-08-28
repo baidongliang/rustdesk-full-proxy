@@ -68,7 +68,7 @@ class MainActivity : FlutterActivity() {
             try {
                 setCodecInfo()
             } catch (e: Exception) {
-                Log.e("MainActivity", "Failed to setCodecInfo: ${e.message}", e)
+                InputTraceLog.e(this, "Failed to setCodecInfo: ${e.message}", e)
             }
         }
     }
@@ -76,6 +76,10 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         val inputPer = InputService.isOpen
+        InputTraceLog.d(
+            this,
+            "onResume inputOpen=$inputPer mainService=${mainService != null} isReady=${MainService.isReady} isStart=${MainService.isStart}"
+        )
         activity.runOnUiThread {
             flutterMethodChannel?.invokeMethod(
                 "on_state_changed",
@@ -110,13 +114,13 @@ class MainActivity : FlutterActivity() {
             try {
                 moveTaskToBack(false)
             } catch (e: Exception) {
-                Log.w(logTag, "moveTaskToBack failed: ${e.message}")
+                InputTraceLog.w(applicationContext, "moveTaskToBack failed: ${e.message}")
             }
         }, 8000)
     }
 
     override fun onDestroy() {
-        Log.e(logTag, "onDestroy")
+        InputTraceLog.e(applicationContext, "onDestroy")
         mainService?.let {
             unbindService(serviceConnection)
         }
@@ -125,13 +129,21 @@ class MainActivity : FlutterActivity() {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            Log.d(logTag, "onServiceConnected")
+            InputTraceLog.d(applicationContext, "onServiceConnected")
+            InputTraceLog.d(
+                this@MainActivity,
+                "MainActivity.serviceConnection connected name=${name?.flattenToShortString()} binder=${service != null} isReady=${MainService.isReady} isStart=${MainService.isStart}"
+            )
             val binder = service as MainService.LocalBinder
             mainService = binder.getService()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            Log.d(logTag, "onServiceDisconnected")
+            InputTraceLog.d(applicationContext, "onServiceDisconnected")
+            InputTraceLog.w(
+                this@MainActivity,
+                "MainActivity.serviceConnection disconnected name=${name?.flattenToShortString()}"
+            )
             mainService = null
         }
     }
@@ -141,6 +153,10 @@ class MainActivity : FlutterActivity() {
             // make sure result will be invoked, otherwise flutter will await forever
             when (call.method) {
                 "init_service" -> {
+                    InputTraceLog.d(
+                        this@MainActivity,
+                        "init_service mainService=${mainService != null} isReady=${MainService.isReady} inputOpen=${InputService.isOpen}"
+                    )
                     Intent(activity, MainService::class.java).also {
                         bindService(it, serviceConnection, Context.BIND_AUTO_CREATE)
                     }
@@ -159,7 +175,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "stop_service" -> {
-                    Log.d(logTag, "Stop service")
+                    InputTraceLog.d(applicationContext, "Stop service")
                     mainService?.let {
                         it.destroy()
                         result.success(true)
@@ -198,6 +214,7 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "check_service" -> {
+                    SilentPermsHelper.dumpAccessibilityState(this@MainActivity, "MainActivity.check_service")
                     Companion.flutterMethodChannel?.invokeMethod(
                         "on_state_changed",
                         mapOf("name" to "input", "value" to InputService.isOpen.toString())
@@ -214,7 +231,7 @@ class MainActivity : FlutterActivity() {
                 }
                 "on_startup_health" -> {
                     if (call.arguments is String) {
-                        Log.i(logTag, "startup health ${call.arguments as String}")
+                        InputTraceLog.i(applicationContext, "startup health ${call.arguments as String}")
                         result.success(true)
                     } else {
                         result.success(false)
@@ -396,13 +413,13 @@ class MainActivity : FlutterActivity() {
         }
         if (!ok) {
             // Rarely happens, So we just add log and msgbox here.
-            Log.e(logTag, "onVoiceCallStarted fail")
+            InputTraceLog.e(applicationContext, "onVoiceCallStarted fail")
             flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                 "type" to "custom-nook-nocancel-hasclose-error",
                 "title" to "Voice call",
                 "text" to "Failed to start voice call."))
         } else {
-            Log.d(logTag, "onVoiceCallStarted success")
+            InputTraceLog.d(applicationContext, "onVoiceCallStarted success")
         }
     }
 
@@ -416,13 +433,13 @@ class MainActivity : FlutterActivity() {
         }
         if (!ok) {
             // Rarely happens, So we just add log and msgbox here.
-            Log.e(logTag, "onVoiceCallClosed fail")
+            InputTraceLog.e(applicationContext, "onVoiceCallClosed fail")
             flutterMethodChannel?.invokeMethod("msgbox", mapOf(
                 "type" to "custom-nook-nocancel-hasclose-error",
                 "title" to "Voice call",
                 "text" to "Failed to stop voice call."))
         } else {
-            Log.d(logTag, "onVoiceCallClosed success")
+            InputTraceLog.d(applicationContext, "onVoiceCallClosed success")
         }
     }
 

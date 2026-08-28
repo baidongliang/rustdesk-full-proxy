@@ -13,7 +13,7 @@ class BootReceiver : BroadcastReceiver() {
     private val logTag = "tagBootReceiver"
 
     override fun onReceive(context: Context, intent: Intent) {
-        Log.d(logTag, "onReceive ${intent.action}")
+        InputTraceLog.d(context, "onReceive ${intent.action}")
 
         if (Intent.ACTION_BOOT_COMPLETED == intent.action || DEBUG_BOOT_COMPLETED == intent.action) {
             // 被控端定制设备：默认开机即启被控服务。
@@ -21,7 +21,7 @@ class BootReceiver : BroadcastReceiver() {
             // 仍保留对 SharedPreferences 的读取：若用户/运维显式置为 false 则尊重（便于排障时临时关闭）。
             val prefs = context.getSharedPreferences(KEY_SHARED_PREFERENCES, FlutterActivity.MODE_PRIVATE)
             if (prefs.getBoolean(KEY_START_ON_BOOT_OPT_DISABLE, false)) {
-                Log.d(logTag, "explicitly disabled via KEY_START_ON_BOOT_OPT_DISABLE")
+                InputTraceLog.d(context, "explicitly disabled via KEY_START_ON_BOOT_OPT_DISABLE")
                 return
             }
 
