@@ -1,10 +1,23 @@
 name: build
 
 on:
+  # 仅打 v* tag 或手动触发时构建(日常 push 不消耗 Actions 配额)
   push:
-    branches: [master_dev]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      android:
+        description: '构建 Android APK'
+        type: boolean
+        default: true
+      macos:
+        description: '构建 macOS'
+        type: boolean
+        default: true
+      windows:
+        description: '构建 Windows'
+        type: boolean
+        default: true
 
 env:
   FLUTTER_VERSION: '3.24.5'
@@ -12,6 +25,7 @@ env:
 
 jobs:
   android:
+    if: github.event_name != 'workflow_dispatch' || inputs.android
     name: Android APK (arm64)
     runs-on: ubuntu-latest
     steps:
@@ -112,6 +126,7 @@ jobs:
             flutter/build/app/outputs/flutter-apk/app-release.apk.sha256
 
   macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.macos
     name: macOS (arm64)
     runs-on: macos-14
     steps:
@@ -172,6 +187,7 @@ jobs:
             flutter/build/macos/Build/Products/Release/RustDesk-macos.zip.sha256
 
   windows:
+    if: github.event_name != 'workflow_dispatch' || inputs.windows
     name: Windows (x64)
     runs-on: windows-latest
     steps:
