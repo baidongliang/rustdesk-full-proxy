@@ -49,7 +49,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/vcpkg/installed
-          key: vcpkg-arm64-android-v2
+          key: vcpkg-arm64-android-v3
 
       - name: Set up vcpkg with native deps
         run: |
@@ -57,9 +57,9 @@ jobs:
             git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
             "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           fi
-          # 仓库根目录有 vcpkg.json,classic 安装必须在 vcpkg 目录下执行
-          cd "$HOME/vcpkg"
-          ./vcpkg install opus libyuv libvpx aom --triplet arm64-android
+          # 与 build_android_deps.sh 一致: 清单模式全量安装 vcpkg.json 依赖
+          # (含 oboe/cpu-features 等 classic 列表难枚举全的包)
+          "$HOME/vcpkg/vcpkg" install --triplet arm64-android --x-install-root="$HOME/vcpkg/installed"
           echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
 
       # 说明: 与本机构建差异——未启用 hwcodec 特性(目标设备硬件编解码不可用,
