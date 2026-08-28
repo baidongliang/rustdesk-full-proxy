@@ -41,8 +41,8 @@ jniLibs
 .vscode
 
 # flutter rust bridge
-lib/generated_bridge.dart
-lib/generated_bridge.freezed.dart
+# lib/generated_bridge.dart (入库: CI 无 codegen 步骤)
+# lib/generated_bridge.freezed.dart (入库: 同上)
 
 # Flutter Generated Files
 **/GeneratedPluginRegistrant.swift

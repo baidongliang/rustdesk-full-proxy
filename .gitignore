@@ -47,7 +47,7 @@ flatpak/build/**
 flatpak/repo/**
 flatpak/*.flatpak
 # bridge file
-lib/generated_bridge.dart
+# lib/generated_bridge.dart (入库: CI 无 codegen 步骤)
 # vscode devcontainer
 .gitconfig
 .vscode-server/
