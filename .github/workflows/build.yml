@@ -57,6 +57,9 @@ jobs:
             git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
             "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           fi
+          # 仓库 vcpkg.json 的 builtin-baseline 不在浅克隆中,按需 fetch 该提交
+          BASELINE=$(python3 -c "import json;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+          git -C "$HOME/vcpkg" fetch --depth 1 origin "$BASELINE" || true
           # 与 build_android_deps.sh 一致: 清单模式全量安装 vcpkg.json 依赖
           # (含 oboe/cpu-features 等 classic 列表难枚举全的包)
           "$HOME/vcpkg/vcpkg" install --triplet arm64-android --x-install-root="$HOME/vcpkg/installed"
