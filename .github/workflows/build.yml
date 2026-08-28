@@ -121,9 +121,23 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # scrap/magnum-opus 的 build.rs 在 macOS(arm64) 走 homebrew: opus/libyuv/libvpx/aom
-      - name: Install native deps
-        run: brew install opus pkg-config libyuv libvpx aom libuv
+      # homebrew 没有 libyuv 包,macOS 也走 vcpkg(与 android/windows 一致);
+      # build.rs 在 VCPKG_ROOT 存在时优先走 vcpkg
+      - name: Cache vcpkg deps (arm64-osx)
+        uses: actions/cache@v4
+        with:
+          path: ~/vcpkg/installed
+          key: vcpkg-arm64-osx-v1
+
+      - name: Set up vcpkg with native deps
+        run: |
+          if [ ! -d "$HOME/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
+            "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          cd "$HOME/vcpkg"
+          ./vcpkg install opus libyuv libvpx aom --triplet arm64-osx
+          echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
 
       - name: Build Rust library (macos)
         run: cargo build --locked --release --features flutter
