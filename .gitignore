@@ -22,8 +22,8 @@ cert.pfx
 *jpg
 sciter.dll
 **pdb
-src/bridge_generated.rs
-src/bridge_generated.io.rs
+# src/bridge_generated.rs (改为入库: CI 无 flutter_rust_bridge 生成步骤,与本机产物保持一致)
+# src/bridge_generated.io.rs (入库,同上)
 *deb
 rustdesk
 *.cache
