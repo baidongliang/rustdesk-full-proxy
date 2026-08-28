@@ -123,7 +123,7 @@ jobs:
 
       # scrap/magnum-opus 的 build.rs 在 macOS(arm64) 走 homebrew: opus/libyuv/libvpx/aom
       - name: Install native deps
-        run: brew install opus pkg-config libyuv libvpx aom
+        run: brew install opus pkg-config libyuv libvpx aom libuv
 
       - name: Build Rust library (macos)
         run: cargo build --locked --release --features flutter
