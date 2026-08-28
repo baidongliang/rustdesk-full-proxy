@@ -43,6 +43,23 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      # magnum-opus 的 build.rs 要求 VCPKG_ROOT(找不到直接 panic);
+      # android 交叉编译需要 arm64-android triplet 的 opus
+      - name: Cache vcpkg opus (arm64-android)
+        uses: actions/cache@v4
+        with:
+          path: ~/vcpkg/installed
+          key: vcpkg-opus-arm64-android-v1
+
+      - name: Set up vcpkg with opus
+        run: |
+          if [ ! -d "$HOME/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
+            "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$HOME/vcpkg/vcpkg" install opus:arm64-android
+          echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
+
       # 说明: 与本机构建差异——未启用 hwcodec 特性(目标设备硬件编解码不可用,
       # 实际走 VP8 软编,功能等价),从而免去 vcpkg/ffmpeg 依赖,大幅提速 CI。
       # 如需恢复: 加回 --features hwcodec 并在 CI 配置 vcpkg(arm64-android triplet)。
