@@ -75,6 +75,7 @@ jobs:
           BINDGEN_EXTRA_CLANG_ARGS_aarch64-linux-android: --sysroot=${{ env.ANDROID_NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
         run: |
           cargo ndk --platform 21 --target aarch64-linux-android build --locked --release --features flutter
+          mkdir -p flutter/android/app/src/main/jniLibs/arm64-v8a
           cp target/aarch64-linux-android/release/liblibrustdesk.so \
              flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
 
@@ -194,6 +195,7 @@ jobs:
           Set-Location "$env:VCPKG_INSTALLATION_ROOT"
           & .\vcpkg.exe install opus libyuv libvpx aom --triplet x64-windows
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VCPKGRS_DYNAMIC=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # windows/CMakeLists.txt 链接 ../../target/release/librustdesk.dll
       - name: Build Rust library (windows)
