@@ -209,7 +209,8 @@ jobs:
         run: |
           # 仓库根目录有 vcpkg.json,classic 安装必须在 vcpkg 目录下执行
           Set-Location "$env:VCPKG_INSTALLATION_ROOT"
-          & .\vcpkg.exe install opus libyuv libvpx aom --triplet x64-windows
+          # scrap/magnum-opus 的 link_vcpkg 在 windows 硬编码找 x64-windows-static triplet
+          & .\vcpkg.exe install opus libyuv libvpx aom --triplet x64-windows-static
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "VCPKGRS_DYNAMIC=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
