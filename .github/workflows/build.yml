@@ -189,7 +189,8 @@ jobs:
   windows:
     if: github.event_name != 'workflow_dispatch' || inputs.windows
     name: Windows (x64)
-    runs-on: windows-latest
+    # 固定 2022 镜像:windows-latest 的新 VS 不被 flutter 3.24.5 识别(找不到 VS 实例)
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
