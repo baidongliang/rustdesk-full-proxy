@@ -67,7 +67,7 @@ jobs:
 
       - name: Set up vcpkg with native deps
         run: |
-          if [ ! -d "$HOME/vcpkg" ]; then
+          if [ ! -x "$HOME/vcpkg/vcpkg" ]; then
             git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
             "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           fi
@@ -155,7 +155,7 @@ jobs:
 
       - name: Set up vcpkg with native deps
         run: |
-          if [ ! -d "$HOME/vcpkg" ]; then
+          if [ ! -x "$HOME/vcpkg/vcpkg" ]; then
             git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
             "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           fi
