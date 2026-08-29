@@ -64,3 +64,5 @@ flutter/web/
 
 # 本地交付的安装包不入库
 /rustdesk-host-*.apk
+/rustdesk-host-*.zip
+/rustdesk-host-*.zip.sha256
