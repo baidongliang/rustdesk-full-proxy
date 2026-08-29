@@ -92,6 +92,9 @@ jobs:
           mkdir -p flutter/android/app/src/main/jniLibs/arm64-v8a
           cp target/aarch64-linux-android/release/liblibrustdesk.so \
              flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
+          # rust .so 依赖 c++ 运行时,从 NDK 拷入(本地 jniLibs 有但未入库)
+          cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" \
+             flutter/android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so
 
       - name: Restore signing config from secrets
         env:
