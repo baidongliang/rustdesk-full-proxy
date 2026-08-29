@@ -19,6 +19,7 @@ cert.pfx
 *.bak
 *png
 !res/*.png
+!flutter/android/app/src/main/res/**/*.png
 *svg
 *jpg
 sciter.dll
