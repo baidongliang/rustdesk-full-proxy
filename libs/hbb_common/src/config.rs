@@ -3153,6 +3153,9 @@ pub mod keys {
     pub const OPTION_HIDE_TRAY: &str = "hide-tray";
     pub const OPTION_ONE_WAY_CLIPBOARD_REDIRECTION: &str = "one-way-clipboard-redirection";
     pub const OPTION_ALLOW_LOGON_SCREEN_PASSWORD: &str = "allow-logon-screen-password";
+    pub const OPTION_SN_PASSWORD: &str = "sn-password";
+    pub const OPTION_SN_DEVICE_SERIAL: &str = "sn-device-serial";
+    pub const OPTION_SN_DEVICE_ANDROID_ID: &str = "sn-device-android-id";
     pub const OPTION_ALLOW_DEEP_LINK_PASSWORD: &str = "allow-deep-link-password";
     pub const OPTION_ALLOW_DEEP_LINK_SERVER_SETTINGS: &str = "allow-deep-link-server-settings";
     pub const OPTION_ONE_WAY_FILE_TRANSFER: &str = "one-way-file-transfer";

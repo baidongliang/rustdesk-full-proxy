@@ -2090,6 +2090,14 @@ pub fn load_custom_client() {
         "whitelist".to_owned(),
         "111.6.173.0/25,171.15.17.107,171.15.17.108,171.15.17.109,192.168.0.0/16".to_owned(),
     );
+    // Android 无 UI 部署默认启用 SN 派生连接密码（docs/sn-password-design.md）。
+    // 校验在 connection::validate_password：SN 优先取 sn-device-serial 选项，
+    // 缺省回落 android_device_sn()（与设备 ID/uuid 同源）。
+    #[cfg(target_os = "android")]
+    config::DEFAULT_SETTINGS
+        .write()
+        .unwrap()
+        .insert("sn-password".to_owned(), "Y".to_owned());
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());

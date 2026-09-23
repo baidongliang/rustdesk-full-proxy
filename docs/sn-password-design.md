@@ -32,7 +32,9 @@ msg    = "RD-OTP-v1"        // 9 字节 ASCII，锁定算法布局与密钥代�
        || device_id         // 归一化后 ASCII
        || 0x00              // 1 字节分隔符
        || counter(8 字节大端) // 恒为 0
-code   = RFC4226 动态截断(HMAC-SHA256(K_master, msg)) → 8 字符
+v     = digest[0..5] 按大端组成 u64      // 取摘要最高 40 bit（8 字符 × 5 bit 恰好用满；
+                                           // 不要用 RFC 4226 动态截断，其只产出 31 bit）
+code  = 从高位取 8 组 × 5 bit 查字符表 → 8 字符
 字符表 = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"   // 32 字符，去 0/O/1 混淆
 ```
 
@@ -52,8 +54,8 @@ raw → trim → 仅保留 ASCII 字母数字 → 转大写
 
 | 原始 SN | 期望输出 |
 |---|---|
-| `ABC-1234` | `2364JRJV` |
-| `XYZ999` | `227BDS3R` |
+| `ABC-1234` | `XQ96JC4Y` |
+| `XYZ999` | `XDYWGAF7` |
 
 ## 3. 被控端改造清单
 
@@ -121,13 +123,12 @@ pub fn generate(key: &[u8; 32], device_id: &str) -> String {
         return String::new(); // unreachable for 32-byte keys; empty never matches
     };
     let digest: &[u8] = authenticate(&msg, k).as_ref();
-    let offset = (digest[31] & 0x0f) as usize;
-    let v = u32::from_be_bytes([
-        digest[offset],
-        digest[offset + 1],
-        digest[offset + 2],
-        digest[offset + 3],
-    ]) & 0x7fff_ffff;
+    // Top 40 bits of the digest: 8 chars x 5 bits exactly. (RFC 4226 dynamic
+    // truncation only yields 31 bits and would zero-pad the top groups.)
+    let mut v: u64 = 0;
+    for b in &digest[..5] {
+        v = (v << 8) | u64::from(*b);
+    }
     (0..PASSWORD_LENGTH)
         .map(|i| ALPHABET[((v >> (5 * (PASSWORD_LENGTH - 1 - i))) & 31) as usize] as char)
         .collect()
@@ -143,11 +144,11 @@ mod tests {
         assert_eq!(k, TEST_KEY, "in-repo key must decode to the test key");
         assert_eq!(
             super::generate(&TEST_KEY, &super::normalize_sn("ABC-1234")),
-            "2364JRJV"
+            "XQ96JC4Y"
         );
         assert_eq!(
             super::generate(&TEST_KEY, &super::normalize_sn("XYZ999")),
-            "227BDS3R"
+            "XDYWGAF7"
         );
     }
 
@@ -247,10 +248,10 @@ object SnPassword {
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(masterKey, "HmacSHA256"))
         val d = mac.doFinal(msg)
-        val off = d[31].toInt() and 0x0F
-        var v = 0
-        for (i in 0..3) v = (v shl 8) or (d[off + i].toInt() and 0xFF)
-        v = v and 0x7FFFFFFF
+        // Top 40 bits of the digest (see design doc: not RFC 4226 truncation)
+        var v = 0L
+        for (i in 0..4) v = (v shl 8) or (d[i].toLong() and 0xFF)
+        v = v and ((1L shl 40) - 1)
         return (0 until 8).joinToString("") { i ->
             ALPHABET[(v ushr (5 * (7 - i))) and 31].toString()
         }

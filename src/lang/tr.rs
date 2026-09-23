@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Tüm monitörler"),
         ("#{} monitor", "Monitör {}"),
         ("conn-e2ee-unavailable-tip", "Uçtan uca şifreleme doğrulanamadı.\nUzak cihaz hâlâ kuruluyor olabilir. Daha sonra tekrar deneyin.\nBu sorun devam ederse sunucu güvenilir olmayabilir.\nYine de devam edilsin mi?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Totu sos ischermos"),
         ("#{} monitor", "Ischermu {}"),
         ("conn-e2ee-unavailable-tip", "No est istadu possìbile verificare sa tzifratzione de punta a punta.\nSu dispositivu remotu podet èssere ancora in fase de configuratzione. Torra a proare prus a tardu.\nSi custu sighit a acontèssere, su server podet non èssere fidadu.\nBoles sighire comente siat?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

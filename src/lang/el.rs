@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Όλες οι οθόνες"),
         ("#{} monitor", "Οθόνη {}"),
         ("conn-e2ee-unavailable-tip", "Δεν ήταν δυνατή η επαλήθευση της κρυπτογράφησης από άκρο σε άκρο.\nΗ απομακρυσμένη συσκευή μπορεί να ρυθμίζεται ακόμα. Δοκιμάστε ξανά αργότερα.\nΑν αυτό συνεχιστεί, ο διακομιστής μπορεί να μην είναι αξιόπιστος.\nΣυνέχεια παρ' όλα αυτά;"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

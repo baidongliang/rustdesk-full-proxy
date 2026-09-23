@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/sn_password.dart';
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -422,6 +423,7 @@ class _GeneralState extends State<_General> {
         if (!isWeb) audio(context),
         if (!isWeb) record(context),
         if (!isWeb) WaylandCard(),
+        if (!isWeb && !bind.isIncomingOnly()) _SnPasswordGenerator(),
         other()
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
@@ -3178,6 +3180,83 @@ void changeSocks5Proxy() async {
       onCancel: close,
     );
   });
+}
+
+class _SnPasswordGenerator extends StatefulWidget {
+  const _SnPasswordGenerator({Key? key}) : super(key: key);
+
+  @override
+  State<_SnPasswordGenerator> createState() => _SnPasswordGeneratorState();
+}
+
+class _SnPasswordGeneratorState extends State<_SnPasswordGenerator> {
+  final controller = TextEditingController();
+  String? _password;
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void _generate() {
+    setState(() {
+      _password = SnPassword.generate(controller.text);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(title: 'SN Password Generator', children: [
+      Text(
+        translate('Enter device ID to generate its connection password'),
+        style: const TextStyle(fontSize: 12, color: Colors.grey),
+      ).marginOnly(bottom: 10),
+      Row(children: [
+        Expanded(
+          child: TextField(
+            controller: controller,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9\-_@ ]')),
+            ],
+            decoration: InputDecoration(
+              labelText: translate('Device ID'),
+              hintText: 'DWDEV202503260014',
+              isDense: true,
+            ),
+          ),
+        ).marginOnly(right: _kContentHMargin),
+        TextButton(
+          child: Text(translate('Generate')),
+          onPressed: _generate,
+        ),
+      ]),
+      if (_password != null)
+        _password!.isEmpty
+            ? Text(
+                translate('Invalid device ID'),
+                style: const TextStyle(
+                    fontSize: _kContentFontSize, color: Colors.red),
+              ).marginOnly(top: 10)
+            : Row(children: [
+                SelectableText(
+                  _password!,
+                  style: const TextStyle(
+                      fontSize: _kContentFontSize + 2,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2),
+                ),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: _password!));
+                    showToast(translate('Copied'));
+                  },
+                  icon: const Icon(Icons.copy, size: 18),
+                ),
+              ]).marginOnly(top: 10),
+    ]);
+  }
 }
 
 //#endregion

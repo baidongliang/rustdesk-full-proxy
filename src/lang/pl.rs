@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Wszystkie ekrany"),
         ("#{} monitor", "Ekran {}"),
         ("conn-e2ee-unavailable-tip", "Nie można zweryfikować szyfrowania end-to-end.\nUrządzenie zdalne może nadal się konfigurować. Spróbuj ponownie później.\nJeśli problem będzie się powtarzał, serwer może być niezaufany.\nKontynuować mimo to?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

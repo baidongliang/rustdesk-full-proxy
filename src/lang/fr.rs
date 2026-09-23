@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Tous les moniteurs"),
         ("#{} monitor", "Moniteur {}"),
         ("conn-e2ee-unavailable-tip", "Impossible de vérifier le chiffrement de bout en bout.\nL'appareil distant est peut-être encore en cours de configuration. Réessayez plus tard.\nSi le problème persiste, le serveur n'est peut-être pas fiable.\nContinuer quand même ?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

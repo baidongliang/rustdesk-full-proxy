@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Monitore guztiak"),
         ("#{} monitor", "{}. monitorea"),
         ("conn-e2ee-unavailable-tip", "Ezin izan da muturretik muturrerako enkriptatzea egiaztatu.\nUrruneko gailua oraindik konfiguratzen ari daiteke. Saiatu berriro geroago.\nHonek jarraitzen badu, zerbitzaria fidagaitza izan daiteke.\nHala ere jarraitu?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

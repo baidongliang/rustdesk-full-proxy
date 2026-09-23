@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "จอภาพทั้งหมด"),
         ("#{} monitor", "จอภาพ {}"),
         ("conn-e2ee-unavailable-tip", "ไม่สามารถยืนยันการเข้ารหัสแบบต้นทางถึงปลายทางได้\nอุปกรณ์ระยะไกลอาจยังอยู่ระหว่างการตั้งค่า โปรดลองอีกครั้งภายหลัง\nหากปัญหานี้ยังเกิดขึ้นต่อไป เซิร์ฟเวอร์อาจไม่น่าเชื่อถือ\nต้องการดำเนินการต่อหรือไม่?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

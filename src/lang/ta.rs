@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "அனைத்து மானிட்டர்களும்"),
         ("#{} monitor", "மானிட்டர் {}"),
         ("conn-e2ee-unavailable-tip", "முடிவு-முதல்-முடிவு குறியாக்கத்தை சரிபார்க்க முடியவில்லை.\nதொலை சாதனம் இன்னும் அமைக்கப்பட்டுக் கொண்டிருக்கலாம். பின்னர் மீண்டும் முயற்சிக்கவும்.\nஇது தொடர்ந்து நடந்தால், சேவையகம் நம்பகமற்றதாக இருக்கலாம்.\nஎப்படியும் தொடரவா?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

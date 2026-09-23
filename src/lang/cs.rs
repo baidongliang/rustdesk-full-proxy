@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Všechny monitory"),
         ("#{} monitor", "Monitor č. {}"),
         ("conn-e2ee-unavailable-tip", "Nepodařilo se ověřit koncové šifrování.\nVzdálené zařízení se možná stále nastavuje. Zkuste to znovu později.\nPokud se to bude opakovat, server nemusí být důvěryhodný.\nPřesto pokračovat?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

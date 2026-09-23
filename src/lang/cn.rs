@@ -766,5 +766,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "所有显示器"),
         ("#{} monitor", "{}号显示器"),
         ("conn-e2ee-unavailable-tip", "无法验证端到端加密。\n远程设备可能仍在准备中，请稍后重试。\n如果此问题持续出现，服务器可能不受信任。\n仍要继续吗？"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", "SN 密码生成"),
+        ("Enter device ID to generate its connection password", "输入设备 ID，生成对应的连接密码"),
+        ("Device ID", "设备 ID"),
+        ("Generate", "生成"),
+        ("Invalid device ID", "设备 ID 无效"),
+].iter().cloned().collect();
 }

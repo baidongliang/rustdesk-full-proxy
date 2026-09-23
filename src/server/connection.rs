@@ -41,7 +41,7 @@ use hbb_common::{
     message_proto::{option_message::BoolOption, permission_info::Permission},
     password_security::{self as password, ApproveMode},
     sha2::{Digest, Sha256},
-    sleep, timeout,
+    sleep, sn_password, timeout,
     tokio::{
         net::TcpStream,
         sync::mpsc,
@@ -260,12 +260,32 @@ enum ConnAuditPrimaryAuth {
     TemporaryPassword = 2,
     PermanentPassword = 3,
     SwitchSides = 4,
+    DerivedPassword = 5,
 }
 
 impl ConnAuditPrimaryAuth {
     fn as_i64(self) -> i64 {
         self as i64
     }
+}
+
+fn sn_password_enabled() -> bool {
+    Config::get_option(keys::OPTION_SN_PASSWORD) == "Y"
+}
+
+// Device id source: explicit option first, then the same SN channel the
+// RustDesk id/uuid derivation uses (docs/sn-password-design.md §3.3).
+#[allow(unused_mut)]
+fn sn_password_device_id() -> Option<String> {
+    let mut serial = Config::get_option(keys::OPTION_SN_DEVICE_SERIAL);
+    #[cfg(target_os = "android")]
+    if sn_password::normalize_sn(&serial).is_empty() {
+        serial = Config::android_device_sn().unwrap_or_default();
+    }
+    sn_password::effective_device_id(
+        &serial,
+        &Config::get_option(keys::OPTION_SN_DEVICE_ANDROID_ID),
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2294,6 +2314,21 @@ impl Connection {
     }
 
     fn validate_password(&mut self, allow_permanent_password: bool) -> bool {
+        if sn_password_enabled() {
+            if let Some(id) = sn_password_device_id() {
+                let code = sn_password::generate(&sn_password::master_key(), &id);
+                if self.validate_password_plain(&code) {
+                    log::info!("Connection authorized via SN-derived password");
+                    self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::DerivedPassword);
+                    raii::AuthedConnID::update_or_insert_session(
+                        self.session_key(),
+                        Some(code),
+                        Some(false),
+                    );
+                    return true;
+                }
+            }
+        }
         if password::temporary_enabled() {
             let password = password::temporary_password();
             if self.validate_password_plain(&password) {

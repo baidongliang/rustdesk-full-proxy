@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Tots els monitors"),
         ("#{} monitor", "Monitor {}"),
         ("conn-e2ee-unavailable-tip", "No s'ha pogut verificar el xifratge d'extrem a extrem.\nEl dispositiu remot encara es pot estar configurant. Torneu-ho a provar més tard.\nSi això continua passant, el servidor pot no ser de confiança.\nVoleu continuar igualment?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }

@@ -22,7 +22,7 @@
       两端共享: K_master(编译期固化) + 算法 v1 + SN 归一化规则
 ```
 
-- **密码形态**：8 位大写字母数字（去混淆 32 字符集，40 bit 熵），形如 `23UTN36C`
+- **密码形态**：8 位大写字母数字（去混淆 32 字符集，40 bit 熵），形如 `MJFRRC4K`
 - **轮换周期**：300 秒，容差 ±1 窗口（两端时钟偏差 ≤ ±5 分钟即可互通）
 - **回退模式**：时钟不可信的设备自动落入静态派生码（同 40 bit，SN 域分隔）
 - **改动面**：`hbb_common` 新增 1 个纯算法模块 + `connection.rs` 1 个校验分支 +
@@ -70,13 +70,14 @@ counter 取值：
 
 换钥时升级为 `RD-OTP-v2` 并换 `K_master`，被控端过渡期同时接受 v1/v2。
 
-### 2.3 截断与编码（RFC 4226 动态截断）
+### 2.3 截断与编码
 
 ```
-offset = digest[31] & 0x0F
-v      = (digest[offset..offset+4] 按大端取 u32) & 0x7FFF_FFFF   // 31 bit
-code   = 从高位取 8 组 × 5 bit，各查一次字符表
-字符表 = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"   // 32 字符，已去 0/O/1/I/L 混淆
+v    = digest[0..5] 按大端组成 u64        // 取摘要最高 40 bit（8 字符 × 5 bit 恰好用满；
+                                            // 不要用 RFC 4226 动态截断，其只产出 31 bit，
+                                            // 会使高两组零填充、熵掉到 31 bit）
+code = 从高位取 8 组 × 5 bit，各查一次字符表
+字符表 = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"   // 32 字符，已去 0/O/1 混淆
 ```
 
 > 注意：字符表里保留 L 是刻意的——去除的是易与数字混淆的 I/O 和 0/1；
@@ -102,12 +103,12 @@ code   = 从高位取 8 组 × 5 bit，各查一次字符表
 
 | 模式 | 原始 SN | counter | 期望输出 |
 |---|---|---|---|
-| TOTP | `ABC-1234` | 5785632 (2025-01-01T00:00:00Z) | `23UTN36C` |
-| TOTP | `ABC-1234` | 5785633 | `23XEZGKA` |
-| TOTP | `XYZ999` | 5785632 | `23UE34M9` |
-| TOTP | `  sn-88@x ` | 5785632 | `22R6ZQBE` |
-| STATIC | `ABC-1234` | 0 | `2364JRJV` |
-| STATIC | `XYZ999` | 0 | `227BDS3R` |
+| TOTP | `ABC-1234` | 5785632 (2025-01-01T00:00:00Z) | `MJFRRC4K` |
+| TOTP | `ABC-1234` | 5785633 | `8J6XLP2K` |
+| TOTP | `XYZ999` | 5785632 | `AP5L8LSZ` |
+| TOTP | `  sn-88@x ` | 5785632 | `HSG5U6GT` |
+| STATIC | `ABC-1234` | 0 | `XQ96JC4Y` |
+| STATIC | `XYZ999` | 0 | `XDYWGAF7` |
 
 ## 3. 运行模式与时钟可信度
 
@@ -217,13 +218,12 @@ pub fn generate(key: &[u8; 32], mode: u8, device_id: &str, counter: u64) -> Stri
         return String::new(); // unreachable for 32-byte keys; empty never matches
     };
     let digest: &[u8] = authenticate(&msg, k).as_ref();
-    let offset = (digest[31] & 0x0f) as usize;
-    let v = u32::from_be_bytes([
-        digest[offset],
-        digest[offset + 1],
-        digest[offset + 2],
-        digest[offset + 3],
-    ]) & 0x7fff_ffff;
+    // Top 40 bits of the digest: 8 chars x 5 bits exactly. (RFC 4226 dynamic
+    // truncation only yields 31 bits and would zero-pad the top groups.)
+    let mut v: u64 = 0;
+    for b in &digest[..5] {
+        v = (v << 8) | u64::from(*b);
+    }
     (0..OTP_LENGTH)
         .map(|i| ALPHABET[((v >> (5 * (OTP_LENGTH - 1 - i))) & 31) as usize] as char)
         .collect()
@@ -279,20 +279,20 @@ mod tests {
         let k = &super::master_key();
         assert_eq!(k, &super::TEST_KEY, "in-repo key must decode to the test key");
         let sn = super::normalize_sn("ABC-1234");
-        assert_eq!(super::generate(&TEST_KEY, super::MODE_TOTP, &sn, 5_785_632), "23UTN36C");
-        assert_eq!(super::generate(&TEST_KEY, super::MODE_TOTP, &sn, 5_785_633), "23XEZGKA");
+        assert_eq!(super::generate(&TEST_KEY, super::MODE_TOTP, &sn, 5_785_632), "MJFRRC4K");
+        assert_eq!(super::generate(&TEST_KEY, super::MODE_TOTP, &sn, 5_785_633), "8J6XLP2K");
         assert_eq!(
             super::generate(&TEST_KEY, super::MODE_TOTP, &super::normalize_sn("XYZ999"), 5_785_632),
-            "23UE34M9"
+            "AP5L8LSZ"
         );
         assert_eq!(
             super::generate(&TEST_KEY, super::MODE_TOTP, &super::normalize_sn("  sn-88@x "), 5_785_632),
-            "22R6ZQBE"
+            "HSG5U6GT"
         );
-        assert_eq!(super::generate(&TEST_KEY, super::MODE_STATIC, &sn, 0), "2364JRJV");
+        assert_eq!(super::generate(&TEST_KEY, super::MODE_STATIC, &sn, 0), "XQ96JC4Y");
         assert_eq!(
             super::generate(&TEST_KEY, super::MODE_STATIC, &super::normalize_sn("XYZ999"), 0),
-            "227BDS3R"
+            "XDYWGAF7"
         );
     }
 
@@ -441,10 +441,10 @@ object SnOtp {
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(masterKey, "HmacSHA256"))
         val d = mac.doFinal(msg)
-        val off = d[31].toInt() and 0x0F
-        var v = 0
-        for (i in 0..3) v = (v shl 8) or (d[off + i].toInt() and 0xFF)
-        v = v and 0x7FFFFFFF
+        // Top 40 bits of the digest (not RFC 4226 truncation)
+        var v = 0L
+        for (i in 0..4) v = (v shl 8) or (d[i].toLong() and 0xFF)
+        v = v and ((1L shl 40) - 1)
         return (0 until 8).joinToString("") { i ->
             ALPHABET[(v ushr (5 * (7 - i))) and 31].toString()
         }

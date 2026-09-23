@@ -765,5 +765,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Visi monitori"),
         ("#{} monitor", "Monitors {}"),
         ("conn-e2ee-unavailable-tip", "Neizdevās pārbaudīt pilnīgu šifrēšanu.\nAttālā ierīce, iespējams, vēl tiek iestatīta. Mēģiniet vēlreiz vēlāk.\nJa tas turpinās, serveris var nebūt uzticams.\nVai tomēr turpināt?"),
-    ].iter().cloned().collect();
+            ("SN Password Generator", ""),
+        ("Enter device ID to generate its connection password", ""),
+        ("Device ID", ""),
+        ("Generate", ""),
+        ("Invalid device ID", ""),
+].iter().cloned().collect();
 }
