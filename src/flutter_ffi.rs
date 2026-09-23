@@ -53,7 +53,7 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.
-        #[cfg(debug_assertions)]
+        // TEMP-DIAG: release 也开 logcat 日志用于排查连接挂起，诊断后恢复
         android_logger::init_once(
             android_logger::Config::default()
                 .with_max_level(log::LevelFilter::Debug) // limit log level
@@ -3108,9 +3108,9 @@ pub mod server_side {
         // 且发起中继时 licence_key（= key 选项）为空会被 hbbs 以 LICENSE_MISMATCH 拒绝。
         // 兜底为与 flutter/lib/main.dart applyDefaultServerConfig 一致的三件套，
         // 仅在选项为空时生效（不覆盖用户已配置值）。
-        const DEFAULT_RENDEZVOUS_SERVER: &str = "39.105.73.125";
-        const DEFAULT_RELAY_SERVER: &str = "39.105.73.125:21117";
-        const DEFAULT_SERVER_KEY: &str = "1s4V8gIN9q6G1mZh7T+d0f09Q0r1ccXlNYKdKmyEeFY=";
+        const DEFAULT_RENDEZVOUS_SERVER: &str = "111.6.173.14";
+        const DEFAULT_RELAY_SERVER: &str = "111.6.173.14:21117";
+        const DEFAULT_SERVER_KEY: &str = "rAwb4L6cuNQdHSEhQl4WYwWAMkClf78JZRHvMq0iLHM=";
         {
             let mut defaults = Vec::new();
             if config::Config::get_option("custom-rendezvous-server").is_empty() {

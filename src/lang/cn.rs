@@ -211,6 +211,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Connect via relay", "中继连接"),
         ("Always connect via relay", "强制走中继连接"),
         ("whitelist_tip", "只有白名单里的 IP 才能访问本机"),
+        ("Your ip is blocked by the peer", "你的 IP 已被对方禁止访问"),
         ("Login", "登录"),
         ("Verify", "验证"),
         ("Remember me", "记住我"),

@@ -139,9 +139,9 @@ Future<void> initEnv(String appType) async {
 /// never overwritten on later launches.
 /// 固定的正式服务器配置（强制覆盖，不依赖用户/历史配置）。
 /// 规则：两端（控制端 + 被控端）永远使用这套配置，禁止被其他逻辑改动。
-const String kIdServer = '39.105.73.125';
-const String kRelayServer = '39.105.73.125:21117';
-const String kServerKey = '1s4V8gIN9q6G1mZh7T+d0f09Q0r1ccXlNYKdKmyEeFY=';
+const String kIdServer = '111.6.173.14';
+const String kRelayServer = '111.6.173.14:21117';
+const String kServerKey = 'rAwb4L6cuNQdHSEhQl4WYwWAMkClf78JZRHvMq0iLHM=';
 
 void applyDefaultServerConfig() {
   try {

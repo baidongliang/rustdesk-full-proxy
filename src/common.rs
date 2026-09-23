@@ -2081,6 +2081,15 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
 }
 
 pub fn load_custom_client() {
+    // Android 无 UI 部署没有设置入口，内置被控端 IP 白名单。
+    // 覆盖两类来源：跨网访问看到的是公网出口地址；同局域网直连（RustDesk 优先路径）
+    // 看到的是对端内网 IP，故需包含 192.168.0.0/16。
+    // 放在 DEFAULT_SETTINGS 层：设备上显式设置其他白名单可覆盖，但清空会回落到内置值。
+    #[cfg(target_os = "android")]
+    config::DEFAULT_SETTINGS.write().unwrap().insert(
+        "whitelist".to_owned(),
+        "111.6.173.0/25,171.15.17.107,171.15.17.108,171.15.17.109,192.168.0.0/16".to_owned(),
+    );
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());
