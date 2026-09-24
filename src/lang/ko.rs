@@ -765,10 +765,5 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "모든 모니터"),
         ("#{} monitor", "#{} 모니터"),
         ("conn-e2ee-unavailable-tip", "종단 간 암호화를 확인할 수 없습니다.\n원격 장치가 아직 설정 중일 수 있습니다. 나중에 다시 시도하세요.\n이 문제가 계속되면 서버를 신뢰할 수 없을 수 있습니다.\n그래도 계속하시겠습니까?"),
-            ("SN Password Generator", ""),
-        ("Enter device ID to generate its connection password", ""),
-        ("Device ID", ""),
-        ("Generate", ""),
-        ("Invalid device ID", ""),
-].iter().cloned().collect();
+    ].iter().cloned().collect();
 }

@@ -765,10 +765,5 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Kõik kuvarid"),
         ("#{} monitor", "Kuvar {}"),
         ("conn-e2ee-unavailable-tip", "Otspunktkrüptimist ei saanud kontrollida.\nKaugseade võib olla veel seadistamisel. Proovige hiljem uuesti.\nKui see jätkub, ei pruugi server olla usaldusväärne.\nKas jätkata siiski?"),
-            ("SN Password Generator", ""),
-        ("Enter device ID to generate its connection password", ""),
-        ("Device ID", ""),
-        ("Generate", ""),
-        ("Invalid device ID", ""),
-].iter().cloned().collect();
+    ].iter().cloned().collect();
 }

@@ -765,10 +765,5 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "すべてのディスプレイ"),
         ("#{} monitor", "ディスプレイ {}"),
         ("conn-e2ee-unavailable-tip", "エンドツーエンド暗号化を確認できませんでした。\nリモートデバイスはまだ準備中の可能性があります。後でもう一度お試しください。\nこの問題が続く場合、サーバーが信頼できない可能性があります。\nそれでも続行しますか？"),
-            ("SN Password Generator", ""),
-        ("Enter device ID to generate its connection password", ""),
-        ("Device ID", ""),
-        ("Generate", ""),
-        ("Invalid device ID", ""),
-].iter().cloned().collect();
+    ].iter().cloned().collect();
 }

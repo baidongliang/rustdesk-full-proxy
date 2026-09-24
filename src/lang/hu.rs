@@ -765,10 +765,5 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Minden monitor"),
         ("#{} monitor", "{}. monitor"),
         ("conn-e2ee-unavailable-tip", "A végpontok közötti titkosítás nem volt ellenőrizhető.\nA távoli eszköz talán még beállítás alatt áll. Próbálja újra később.\nHa ez továbbra is előfordul, a szerver lehet, hogy nem megbízható.\nFolytatja így is?"),
-            ("SN Password Generator", ""),
-        ("Enter device ID to generate its connection password", ""),
-        ("Device ID", ""),
-        ("Generate", ""),
-        ("Invalid device ID", ""),
-].iter().cloned().collect();
+    ].iter().cloned().collect();
 }

@@ -213,14 +213,10 @@ class FfiModel with ChangeNotifier {
   }
 
   toggleTouchMode() {
-    _touchMode = !_touchMode;
-    // Android 会话此前被硬编码触屏模式、切换无效；这里持久化到本地选项，
-    // 供 updatePeerInfo 在下次会话时读取。
-    if (isPeerAndroid) {
-      bind.mainSetLocalOption(
-          key: kOptionTouchMode, value: _touchMode ? 'Y' : 'N');
+    if (!isPeerAndroid) {
+      _touchMode = !_touchMode;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   updatePermission(Map<String, dynamic> evt, String id) {
@@ -1383,15 +1379,7 @@ class FfiModel with ChangeNotifier {
 
     final connType = parent.target?.connType;
     if (isPeerAndroid) {
-      // 触屏模式下鼠标移动会被当作拖动（页面跟着滚），鼠标操作不友好。
-      // 桌面控制端默认鼠标模式，本地选项可显式切回触屏模式；
-      // 手机等触屏控制端仍默认触屏模式。
-      if (isMobile) {
-        _touchMode = true;
-      } else {
-        _touchMode =
-            bind.mainGetLocalOption(key: kOptionTouchMode) == 'Y';
-      }
+      _touchMode = true;
     } else {
       // `kOptionTouchMode` is originally peer option, but it is moved to local option later.
       // We check local option first, if not set, then check peer option.

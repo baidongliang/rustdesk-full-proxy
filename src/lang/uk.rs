@@ -765,10 +765,5 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Усі монітори"),
         ("#{} monitor", "Монітор {}"),
         ("conn-e2ee-unavailable-tip", "Не вдалося перевірити наскрізне шифрування.\nВіддалений пристрій, можливо, ще налаштовується. Спробуйте пізніше.\nЯкщо це повторюється, сервер може бути ненадійним.\nПродовжити все одно?"),
-            ("SN Password Generator", ""),
-        ("Enter device ID to generate its connection password", ""),
-        ("Device ID", ""),
-        ("Generate", ""),
-        ("Invalid device ID", ""),
-].iter().cloned().collect();
+    ].iter().cloned().collect();
 }

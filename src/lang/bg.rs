@@ -765,10 +765,5 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("All monitors", "Всички монитори"),
         ("#{} monitor", "Монитор {}"),
         ("conn-e2ee-unavailable-tip", "Шифроването от край до край не може да бъде проверено.\nОтдалеченото устройство може все още да се настройва. Опитайте отново по-късно.\nАко това продължи, сървърът може да не е надежден.\nДа се продължи ли въпреки това?"),
-            ("SN Password Generator", ""),
-        ("Enter device ID to generate its connection password", ""),
-        ("Device ID", ""),
-        ("Generate", ""),
-        ("Invalid device ID", ""),
-].iter().cloned().collect();
+    ].iter().cloned().collect();
 }

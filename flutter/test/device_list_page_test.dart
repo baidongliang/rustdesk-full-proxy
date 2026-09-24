@@ -62,7 +62,7 @@ void main() {
     await tester.pump();
 
     expect(connectedId, '1697972170');
-    expect(connectedPassword, '1697972170');
+    expect(connectedPassword, 'xinzx2026');
   });
 
   testWidgets('login loads ThingsBoard devices and control connects',
@@ -94,7 +94,7 @@ void main() {
     await tester.pump();
 
     expect(connectedId, 'DWDEV202604260021');
-    expect(connectedPassword, '202604260021');
+    expect(connectedPassword, 'custom-pass');
   });
 
   testWidgets('thingsboard uuid alone does not enable remote control',
