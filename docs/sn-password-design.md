@@ -167,40 +167,21 @@ mod tests {
 
 挂载：`libs/hbb_common/src/lib.rs` 加 `pub mod sn_password;`
 
-### 3.2 `src/server/connection.rs` 校验分支
+### 3.2 被控端接入（启动时写入永久密码）
 
-`validate_password`（现 `src/server/connection.rs:2296`）最前插入：
+实现位置：`src/flutter_ffi.rs` `initialize()`（无 UI 被控端每次启动执行）。
 
-```rust
-if sn_password_enabled() {
-    if let Some(id) = sn_device_id() {
-        let code = hbb_common::sn_password::generate(
-            &hbb_common::sn_password::master_key(),
-            &id,
-        );
-        if self.validate_password_plain(&code) {
-            self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::DerivedPassword);
-            // 与 temporary 密码路径同法，自动获得断线快连（is_recent_session）
-            raii::AuthedConnID::update_or_insert_session(
-                self.session_key(),
-                Some(code),
-                Some(false),
-            );
-            return true;
-        }
-    }
-}
+```
+password = sn_password::generate(master_key, effective_device_id(android_device_sn(), ""))
+Config::set_permanent_password(password)   // 存储 h1+salt 哈希
 ```
 
-要点：
-
-- **传输零改动**：`validate_password_plain` 对派生码做与任何密码相同的
-  salt/challenge 哈希比对；客户端把它当普通密码填入即可。
-- **防爆破零新增**：失败走现有 `check_failure` / `update_failure_with_scope`
-  簿记（30 次 / 每分钟 6 次拦截 + 告警审计）。
-- `ConnAuditPrimaryAuth`（`src/server/connection.rs:257`）增加 `DerivedPassword = 5`。
-- `sn_password_enabled()` 读选项键 `sn-password`（"Y" 启用）；`sn_device_id()` 读
-  `sn-device-serial` / `sn-device-android-id` 两个选项键。
+- 登录校验走**既有的永久密码路径**（`validate_password` 的 permanent 分支），
+  salt/challenge 哈希、constant-time 比对、失败锁定、会话快连全部复用，
+  登录期零新增代码路径；
+- 旧机制（SN 去字母后的明文数字直接作密码，可被猜测）被本算法**整体替换**；
+- 审计沿用 `PermanentPassword` 标记；
+- 设备侧无需任何配置，`approve-mode=password`（部署默认）即可放行。
 
 ### 3.3 SN 获取（Android）
 

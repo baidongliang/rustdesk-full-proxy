@@ -3133,21 +3133,17 @@ pub mod server_side {
             }
         }
         // 无 UI 被控端：Dart main() 不运行，永久密码需由 Rust 兜底，否则控制端带密码
-        // 连接会被拒（"密码不正确"）。统一规则：SN（DWDEV/DEDEV...）前缀后的数字
-        // 作为密码，与控制端 device_list_page 的派生规则保持一致；SN 不合规时两端
-        // 一致回落 "00000000"（与 consts.dart kHostPresetPassword 同步）。
-        let password = config::Config::android_device_sn()
-            .map(|sn| {
-                let digits = sn.trim_start_matches(|c: char| c.is_ascii_alphabetic());
-                if digits.len() >= 6 {
-                    digits.to_owned()
-                } else {
-                    "00000000".to_owned()
-                }
-            })
-            .unwrap_or_else(|| "00000000".to_owned());
+        // 连接会被拒（"密码不正确"）。密码 = HMAC 派生码（docs/sn-password-design.md），
+        // 与控制端生成器（flutter/lib/common/sn_password.dart）同算法同密钥；
+        // SN 不合规时两端一致回落 "00000000"（与 consts.dart kHostPresetPassword 同步）。
+        let password = hbb_common::sn_password::effective_device_id(
+            &config::Config::android_device_sn().unwrap_or_default(),
+            "",
+        )
+        .map(|id| hbb_common::sn_password::generate(&hbb_common::sn_password::master_key(), &id))
+        .unwrap_or_else(|| "00000000".to_owned());
         if config::Config::set_permanent_password(&password) {
-            log::info!("apply permanent password derived from sn");
+            log::info!("apply permanent password derived from sn (hmac)");
         } else {
             log::warn!("failed to apply sn-derived permanent password");
         }
