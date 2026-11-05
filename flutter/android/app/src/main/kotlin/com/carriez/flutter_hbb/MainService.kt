@@ -74,6 +74,7 @@ class MainService : Service() {
                 applicationContext,
                 "rustPointerInput dropped because InputService is not bound"
             )
+            AccessibilitySelfHeal.onInputDropped(applicationContext)
         }
         // turn on screen with LEFT_DOWN when screen off
         if (!powerManager.isInteractive && (kind == 0 || mask == LEFT_DOWN)) {
@@ -84,6 +85,9 @@ class MainService : Service() {
             Log.d(logTag,"Turn on Screen")
             wakeLock.acquire(5000)
         } else {
+            if (InputService.ctx != null) {
+                AccessibilitySelfHeal.onInputHealthy(applicationContext)
+            }
             when (kind) {
                 0 -> { // touch
                     InputService.ctx?.onTouchInput(mask, x, y)
@@ -109,8 +113,12 @@ class MainService : Service() {
                 applicationContext,
                 "rustKeyEventInput dropped because InputService is not bound"
             )
+            AccessibilitySelfHeal.onInputDropped(applicationContext)
         }
-        InputService.ctx?.onKeyEvent(input)
+        if (InputService.ctx != null) {
+            AccessibilitySelfHeal.onInputHealthy(applicationContext)
+            InputService.ctx?.onKeyEvent(input)
+        }
     }
 
     @Keep

@@ -3108,9 +3108,9 @@ pub mod server_side {
         // 且发起中继时 licence_key（= key 选项）为空会被 hbbs 以 LICENSE_MISMATCH 拒绝。
         // 兜底为与 flutter/lib/main.dart applyDefaultServerConfig 一致的三件套，
         // 仅在选项为空时生效（不覆盖用户已配置值）。
-        const DEFAULT_RENDEZVOUS_SERVER: &str = "111.6.173.14";
-        const DEFAULT_RELAY_SERVER: &str = "111.6.173.14:21117";
-        const DEFAULT_SERVER_KEY: &str = "rAwb4L6cuNQdHSEhQl4WYwWAMkClf78JZRHvMq0iLHM=";
+        const DEFAULT_RENDEZVOUS_SERVER: &str = "47.95.148.47";
+        const DEFAULT_RELAY_SERVER: &str = "47.95.148.47:21117";
+        const DEFAULT_SERVER_KEY: &str = "1s4V8gIN9q6G1mZh7T+d0f09Q0r1ccXlNYKdKmyEeFY=";
         {
             let mut defaults = Vec::new();
             if config::Config::get_option("custom-rendezvous-server").is_empty() {

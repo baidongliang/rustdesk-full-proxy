@@ -1,8 +1,8 @@
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc, RwLock
     },
     time::{Duration, Instant},
 };
@@ -56,6 +56,16 @@ pub(crate) static NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
 static NOTIFIED_NEEDS_DEPLOY: AtomicBool = AtomicBool::new(false);
 // register_pk retry interval (ms) when device is awaiting deployment
 const DEPLOY_RETRY_INTERVAL: i64 = 30_000;
+// consecutive RegisterPk UUID_MISMATCH responses: repeated mismatches (e.g.
+// server-side anti-hijack deadlock after pk regeneration + network change)
+// used to re-send register_pk every ~30ms and churn the id; back off
+// exponentially up to the cap instead. The periodic register_peer retries
+// once the gate expires.
+static PK_MISMATCH_COUNT: AtomicU32 = AtomicU32::new(0);
+const PK_MISMATCH_MAX_BACKOFF_MS: u64 = 60_000;
+lazy_static::lazy_static! {
+    static ref PK_MISMATCH_RETRY_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
+}
 lazy_static::lazy_static! {
     static ref LAST_NOT_DEPLOYED_REGISTER: Mutex<Option<Instant>> = Mutex::new(None);
 }
@@ -373,6 +383,8 @@ impl RendezvousMediator {
                 );
                 match rpr.result.enum_value() {
                     Ok(register_pk_response::Result::OK) => {
+                        PK_MISMATCH_COUNT.store(0, Ordering::SeqCst);
+                        *PK_MISMATCH_RETRY_UNTIL.lock().await = None;
                         Config::set_key_confirmed(true);
                         Config::set_host_key_confirmed(&self.host_prefix, true);
                         *SOLVING_PK_MISMATCH.lock().await = "".to_owned();
@@ -381,7 +393,20 @@ impl RendezvousMediator {
                         reset_needs_deploy_notification();
                     }
                     Ok(register_pk_response::Result::UUID_MISMATCH) => {
-                        self.handle_uuid_mismatch(sink).await?;
+                        let n = PK_MISMATCH_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
+                        if n >= 2 {
+                            let backoff_ms =
+                                (1000u64 << (n - 2).min(6)).min(PK_MISMATCH_MAX_BACKOFF_MS);
+                            *PK_MISMATCH_RETRY_UNTIL.lock().await =
+                                Some(Instant::now() + Duration::from_millis(backoff_ms));
+                            log::warn!(
+                                "RegisterPk UUID_MISMATCH #{} from {}, back off {}ms before next register_pk",
+                                n, self.host, backoff_ms
+                            );
+                        } else {
+                            // First mismatch: refresh id and retry immediately (escape hatch).
+                            self.handle_uuid_mismatch(sink).await?;
+                        }
                     }
                     Ok(register_pk_response::Result::NOT_DEPLOYED) => {
                         if !NEEDS_DEPLOY.load(Ordering::SeqCst) {
@@ -768,6 +793,15 @@ impl RendezvousMediator {
     }
 
     async fn register_pk(&mut self, socket: Sink<'_>) -> ResultType<()> {
+        // UUID_MISMATCH exponential backoff gate (see handle_resp): skip while
+        // the backoff from the previous mismatch has not expired yet.
+        if let Some(t) = *PK_MISMATCH_RETRY_UNTIL.lock().await {
+            if Instant::now() < t {
+                log::info!("register_pk skipped: uuid mismatch backoff not expired");
+                return Ok(());
+            }
+            *PK_MISMATCH_RETRY_UNTIL.lock().await = None;
+        }
         // Throttle register_pk when the device is awaiting deployment: server
         // already told us we're not in its db; sending more often than every
         // DEPLOY_RETRY_INTERVAL ms is wasted traffic until the operator runs
