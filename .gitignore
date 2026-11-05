@@ -66,4 +66,5 @@ flutter/web/
 /rustdesk-host-*.apk
 /rustdesk-host-*.zip
 /rustdesk-host-*.zip.sha256
-RustDesk-mac-*.zip
+/RustDesk-mac*.zip
+/RustDesk-mac*.zip.sha256
