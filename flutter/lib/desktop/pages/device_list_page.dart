@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 import '../../common.dart';
@@ -439,8 +443,9 @@ class _DeviceListPageState extends State<DeviceListPage> {
   }
 
   void _onControl(ThingsBoardRemoteDevice device) {
-    // 密码只走 SN 派生规则（与被控端 Rust 一致），不读 ThingsBoard 属性——
-    // 被控端永远只认 SN 派生密码，属性密码会造成必然的"密码不正确"。
+    // 密码只走 ID 派生规则 v2（与被控端 Rust sn_password 一致），不读
+    // ThingsBoard 属性——被控端启动即按自身 ID 派生写入永久密码，属性密码会
+    // 造成必然的"密码不正确"。
     final password = snDerivedPassword(device.connectionId);
     final connectHandler = widget.connectHandler;
     if (connectHandler != null) {
@@ -451,15 +456,52 @@ class _DeviceListPageState extends State<DeviceListPage> {
   }
 }
 
-/// 统一密码规则（与被控端 Rust 侧一致）：SN（DWDEV/DEDEV…）前缀字母后的数字
-/// 作为连接密码，如 DWDEV202604260020 -> 202604260020。
-/// SN 不含合规数字段时回落到 [kHostPresetPassword]。
+/// 统一密码规则 v2（与被控端 Rust sn_password 一致）：
+/// HMAC-SHA256(K, "RD-OTP-v1"|0x02|normalize(ID)|0x00|counter=0) 前 40bit，
+/// 按 32 字符去混淆表编码为 8 位。派生源为 ID 本身（normalize 后），任意厂家
+/// 序列号格式通用；ID 变化时两端密码同步变化。
+/// ID 不合规（normalize 为空）时返回 null，走手动输密码。
 String? snDerivedPassword(String connectionId) {
-  final digits = connectionId.trim().replaceFirst(RegExp(r'^[A-Za-z]+'), '');
-  if (digits.length >= 6) {
-    return digits;
+  const keyVersion = 'RD-OTP-v1';
+  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  // 与 Rust 侧 sn_password.rs 的 OTP_KEY_XORED/OTP_KEY_PAD 成对，改动需同步。
+  const keyXored = [
+    0xe6, 0x1c, 0xf9, 0xcd, 0xcb, 0xad, 0x36, 0x7a, 0x90, 0xa7, 0x51, 0x4e,
+    0x3b, 0x10, 0x5c, 0x02, 0xf9, 0x22, 0xc5, 0xfd, 0x6f, 0xe7, 0xb0, 0x76,
+    0xad, 0x88, 0x10, 0x75, 0xd6, 0x86, 0xd9, 0x33,
+  ];
+  final keyPad = ascii.encode('rd-otp-pad-0123456789abcdef-xyz!');
+  final masterKey = Uint8List.fromList(
+      List.generate(keyXored.length, (i) => keyXored[i] ^ keyPad[i]));
+  final id = _normalizeSnId(connectionId);
+  if (id.isEmpty) {
+    return null;
   }
-  return kHostPresetPassword;
+  final msg = <int>[
+    ...ascii.encode(keyVersion),
+    0x02,
+    ...ascii.encode(id),
+    0x00,
+    0, 0, 0, 0, 0, 0, 0, 0, // counter，STATIC 模式恒为 0
+  ];
+  final digest = Hmac(sha256, masterKey).convert(msg).bytes;
+  var v = 0;
+  for (var i = 0; i < 5; i++) {
+    v = (v << 8) | digest[i];
+  }
+  return List.generate(8, (i) => alphabet[(v >> (5 * (7 - i))) & 31]).join();
+}
+
+/// 与 Rust normalize_sn 一致：去 @server 后缀、大写、仅保留字母数字。
+String _normalizeSnId(String raw) {
+  final id = raw.split('@').first.trim().toUpperCase();
+  final sb = StringBuffer();
+  for (final c in id.codeUnits) {
+    if ((c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A)) {
+      sb.writeCharCode(c);
+    }
+  }
+  return sb.toString();
 }
 
 String _formatTime(DateTime time) {

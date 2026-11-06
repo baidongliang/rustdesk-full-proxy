@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RustDesk 连接密码生成器</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f2f5f7; color: #1f2d3d;
+    display: flex; justify-content: center; padding: 48px 16px;
+  }
+  .card {
+    background: #fff; border-radius: 12px; padding: 32px 36px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.08); width: 520px; max-width: 100%;
+  }
+  h1 { font-size: 20px; margin-bottom: 6px; }
+  .sub { color: #7f8b99; font-size: 13px; margin-bottom: 24px; }
+  label { display: block; font-size: 13px; color: #5a6a7a; margin: 16px 0 6px; }
+  input[type=text] {
+    width: 100%; padding: 12px 14px; font-size: 16px; letter-spacing: 1px;
+    border: 1px solid #ccd5dd; border-radius: 8px; outline: none;
+  }
+  input[type=text]:focus { border-color: #2f7ef7; }
+  .norm { color: #98a6b3; font-size: 12px; margin-top: 6px; min-height: 16px; }
+  .pwd-box {
+    margin-top: 20px; background: #f7f9fb; border: 1px dashed #ccd5dd;
+    border-radius: 8px; padding: 18px; text-align: center;
+  }
+  .pwd {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 34px; letter-spacing: 6px; color: #1f7ae0; user-select: all;
+    min-height: 42px; word-break: break-all;
+  }
+  .pwd.empty { color: #c3ccd4; font-size: 16px; letter-spacing: 0; }
+  .btn {
+    margin-top: 14px; padding: 8px 22px; font-size: 14px; cursor: pointer;
+    border: none; border-radius: 6px; background: #2f7ef7; color: #fff;
+  }
+  .btn:active { opacity: .8; }
+  .quick { margin-top: 24px; }
+  .quick h3 { font-size: 13px; color: #5a6a7a; margin-bottom: 8px; font-weight: normal; }
+  .quick button {
+    margin: 0 8px 8px 0; padding: 8px 14px; font-size: 13px; cursor: pointer;
+    border: 1px solid #ccd5dd; border-radius: 6px; background: #fff; color: #1f2d3d;
+  }
+  .quick button:hover { border-color: #2f7ef7; color: #2f7ef7; }
+  .foot { margin-top: 26px; color: #a5b1bd; font-size: 12px; line-height: 1.7; }
+  .copied { color: #27ae60; font-size: 12px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>RustDesk 连接密码生成器</h1>
+  <div class="sub">输入设备 ID（序列号），按与被控端/控制端一致的 v2 算法离线生成连接密码</div>
+
+  <label>设备 ID / 序列号</label>
+  <input type="text" id="devid" placeholder="如 DWDEV202604260020" autofocus autocomplete="off">
+  <div class="norm" id="norm"></div>
+
+  <div class="pwd-box">
+    <div class="pwd empty" id="pwd">— — — — — — — —</div>
+    <button class="btn" id="copy" style="display:none">复制密码</button>
+    <span class="copied" id="copied" style="display:none">已复制 ✓</span>
+  </div>
+
+  <div class="quick">
+    <h3>常用设备（点击填入）</h3>
+    <button onclick="fill('DWDEV202604260020')">DWF68 一体机（020）</button>
+    <button onclick="fill('DWDEV202401090905')">DWD68 盒子（0905）</button>
+  </div>
+
+  <div class="foot">
+    算法：HMAC-SHA256(部署密钥, "RD-OTP-v1"|0x02|normalize(ID)|0x00|counter=0) 前 40bit → 32 字符表编码 8 位。<br>
+    normalize：去 @server 后缀、大写、仅保留字母数字。与被控端启动写入的永久密码、控制端 devices 页派生完全一致。<br>
+    纯本地计算，不联网。
+  </div>
+</div>
+
+<script>
+// ---------- 部署密钥（与 sn_password.rs / device_list_page.dart 成对，改动需三处同步） ----------
+const KEY_XORED = [
+  0xe6,0x1c,0xf9,0xcd,0xcb,0xad,0x36,0x7a,0x90,0xa7,0x51,0x4e,0x3b,0x10,0x5c,0x02,
+  0xf9,0x22,0xc5,0xfd,0x6f,0xe7,0xb0,0x76,0xad,0x88,0x10,0x75,0xd6,0x86,0xd9,0x33
+];
+const KEY_PAD = new TextEncoder().encode('rd-otp-pad-0123456789abcdef-xyz!');
+const KEY_VERSION = new TextEncoder().encode('RD-OTP-v1');
+const ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+const MASTER_KEY = KEY_XORED.map((b, i) => b ^ KEY_PAD[i]);
+
+// ---------- 纯 JS SHA-256 ----------
+function sha256(bytes) {
+  const K = [
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+  ];
+  const H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  const l = bytes.length;
+  const withLen = l + 9;
+  const blocks = Math.ceil(withLen / 64);
+  const m = new Uint8Array(blocks * 64);
+  m.set(bytes);
+  m[l] = 0x80;
+  const bitLenHi = Math.floor(l / 0x20000000);
+  const bitLenLo = (l << 3) >>> 0;
+  const dv = new DataView(m.buffer);
+  dv.setUint32(blocks * 64 - 8, bitLenHi);
+  dv.setUint32(blocks * 64 - 4, bitLenLo);
+
+  const w = new Uint32Array(64);
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+  for (let b = 0; b < blocks; b++) {
+    const off = b * 64;
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i-15],7) ^ rotr(w[i-15],18) ^ (w[i-15] >>> 3);
+      const s1 = rotr(w[i-2],17) ^ rotr(w[i-2],19) ^ (w[i-2] >>> 10);
+      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;
+    }
+    let [a,b2,c,d,e,f,g,h] = H;
+    for (let i = 0; i < 64; i++) {
+      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (h + S1 + ch + K[i] + w[i]) >>> 0;
+      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);
+      const mj = (a & b2) ^ (a & c) ^ (b2 & c);
+      const t2 = (S0 + mj) >>> 0;
+      h = g; g = f; f = e; e = (d + t1) >>> 0;
+      d = c; c = b2; b2 = a; a = (t1 + t2) >>> 0;
+    }
+    H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b2)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;
+    H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;
+  }
+  const out = new Uint8Array(32);
+  const odv = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) odv.setUint32(i * 4, H[i]);
+  return out;
+}
+
+// HMAC-SHA256（密钥 32 字节，按 HMAC 规范补齐到 64 字节块）
+function hmacSha256(key, msg) {
+  let k = key.slice();
+  if (k.length > 64) k = sha256(k);
+  while (k.length < 64) k.push(0);
+  const ipad = new Uint8Array(64), opad = new Uint8Array(64);
+  for (let i = 0; i < 64; i++) { ipad[i] = k[i] ^ 0x36; opad[i] = k[i] ^ 0x5c; }
+  const inner = sha256(new Uint8Array([...ipad, ...msg]));
+  return sha256(new Uint8Array([...opad, ...inner]));
+}
+
+// ---------- v2 派生 ----------
+function normalizeId(raw) {
+  const s = raw.split('@')[0].trim().toUpperCase();
+  let out = '';
+  for (const ch of s) {
+    const c = ch.charCodeAt(0);
+    if ((c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a)) out += ch;
+  }
+  return out;
+}
+
+function derive(deviceId) {
+  const id = normalizeId(deviceId);
+  if (!id) return { password: '', norm: '' };
+  const idBytes = new TextEncoder().encode(id);
+  const msg = new Uint8Array([...KEY_VERSION, 0x02, ...idBytes, 0x00, 0,0,0,0,0,0,0,0]);
+  const digest = hmacSha256(MASTER_KEY, msg);
+  let v = 0n;
+  for (let i = 0; i < 5; i++) v = (v << 8n) | BigInt(digest[i]);
+  let pwd = '';
+  for (let i = 0; i < 8; i++) pwd += ALPHABET[Number((v >> BigInt(5 * (7 - i))) & 31n)];
+  return { password: pwd, norm: id };
+}
+
+// ---------- UI ----------
+const devid = document.getElementById('devid');
+const pwdEl = document.getElementById('pwd');
+const normEl = document.getElementById('norm');
+const copyBtn = document.getElementById('copy');
+const copiedEl = document.getElementById('copied');
+
+function render() {
+  const { password, norm } = derive(devid.value);
+  normEl.textContent = norm ? 'normalize 后：' + norm : '';
+  if (password) {
+    pwdEl.textContent = password;
+    pwdEl.classList.remove('empty');
+    copyBtn.style.display = 'inline-block';
+  } else {
+    pwdEl.textContent = '— — — — — — — —';
+    pwdEl.classList.add('empty');
+    copyBtn.style.display = 'none';
+    copiedEl.style.display = 'none';
+  }
+}
+devid.addEventListener('input', render);
+
+function fill(id) { devid.value = id; render(); }
+
+copyBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(pwdEl.textContent).then(() => {
+    copiedEl.style.display = 'inline';
+    setTimeout(() => { copiedEl.style.display = 'none'; }, 1500);
+  }).catch(() => {
+    // clipboard 不可用（file:// 某些浏览器）时退化为选中文本
+    const range = document.createRange();
+    range.selectNodeContents(pwdEl);
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+  });
+});
+</script>
+</body>
+</html>
