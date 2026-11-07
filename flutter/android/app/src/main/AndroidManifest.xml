@@ -49,6 +49,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- 业务 app 拉起/配置入口（v2 身份方案）：传 SN 并启动被控服务。
+             服务内校验调用方包名白名单（默认 cn.xinzx.library.app 等）。 -->
+        <service
+            android:name=".ProvisionService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.xinzx.rustdesk.android.PROVISION" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".InputService"
             android:enabled="true"

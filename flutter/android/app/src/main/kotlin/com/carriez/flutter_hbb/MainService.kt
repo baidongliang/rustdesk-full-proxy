@@ -60,6 +60,11 @@ const val MAX_SCREEN_SIZE = 1200
 const val VIDEO_KEY_BIT_RATE = 1024_000
 const val VIDEO_KEY_FRAME_RATE = 30
 
+// 存活心跳（业务 app 检测被控端死亡并自动重拉的机制）
+const val ACTION_HEARTBEAT = "cn.xinzx.rustdesk.android.HEARTBEAT"
+const val EXTRA_SN = "sn"
+const val HEARTBEAT_INTERVAL_MS = 30_000L
+
 class MainService : Service() {
 
     @Keep
@@ -288,12 +293,58 @@ class MainService : Service() {
         createForegroundNotification()
         // 投屏授权自愈：授权被前台 app 抢占/自动确认失败时周期性重试。
         startProjectionWatchdog()
+        // 存活心跳：周期性向业务 app 广播存活状态（供其检测死亡并自动重拉）。
+        startHeartbeat()
     }
 
     override fun onDestroy() {
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
+        stopHeartbeat()
         super.onDestroy()
+    }
+
+    // 存活心跳：周期性向业务 app（白名单中的常驻调用方）广播存活状态（SN+时间戳）。
+    // 业务 app 监控心跳超时即重拉被控端（拉起幂等），死亡检测+自动拉活闭环。
+    private var heartbeatHandler: Handler? = null
+    private val heartbeatTick = object : Runnable {
+        override fun run() {
+            sendHeartbeat()
+            heartbeatHandler?.postDelayed(this, HEARTBEAT_INTERVAL_MS)
+        }
+    }
+
+    private fun startHeartbeat() {
+        if (heartbeatHandler != null) return
+        val handler = Handler(Looper.getMainLooper())
+        heartbeatHandler = handler
+        sendHeartbeat()
+        handler.postDelayed(heartbeatTick, HEARTBEAT_INTERVAL_MS)
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatHandler?.removeCallbacksAndMessages(null)
+        heartbeatHandler = null
+    }
+
+    private fun sendHeartbeat() {
+        val sn = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
+            .getString(KEY_DEVICE_SN, "").orEmpty()
+        if (sn.isEmpty()) return
+        for (pkg in heartbeatTargetPackages()) {
+            val i = Intent(ACTION_HEARTBEAT).setPackage(pkg)
+                .putExtra(EXTRA_SN, sn)
+                .putExtra("ts", System.currentTimeMillis())
+            sendBroadcast(i)
+        }
+    }
+
+    /** 心跳接收方：ProvisionService 白名单里的常驻业务 app（去掉 shell 调试通道与自身） */
+    private fun heartbeatTargetPackages(): List<String> {
+        val callers = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
+            .getString(ProvisionService.KEY_PROVISION_CALLERS, ProvisionService.DEFAULT_PROVISION_CALLERS)
+            ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+        return callers.filter { it != "com.android.shell" && it != packageName }
     }
 
     private var isHalfScale: Boolean? = null;

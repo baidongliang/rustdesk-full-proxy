@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import ffi.FFI
 import io.flutter.embedding.android.FlutterActivity
 
 const val DEBUG_BOOT_COMPLETED = "com.carriez.flutter_hbb.DEBUG_BOOT_COMPLETED"
@@ -24,6 +25,15 @@ class BootReceiver : BroadcastReceiver() {
                 InputTraceLog.d(context, "explicitly disabled via KEY_START_ON_BOOT_OPT_DISABLE")
                 return
             }
+
+            // v2 身份方案：本地无 SN 时不自启（等业务 app 经 ProvisionService 拉起并下发 SN），
+            // 避免无身份设备以随机 ID 注册。已有 SN（含多厂家业务下发值）则注入后照常启动。
+            val savedSn = prefs.getString(KEY_DEVICE_SN, "").orEmpty()
+            if (savedSn.isEmpty()) {
+                InputTraceLog.d(context, "no provisioned sn, skip auto start (waiting for provision)")
+                return
+            }
+            FFI.setAndroidSn(savedSn)
 
             val it = Intent(context, MainService::class.java).apply {
                 action = ACT_INIT_MEDIA_PROJECTION_AND_SERVICE

@@ -17,8 +17,8 @@ object SnHelper {
     /**
      * 获取设备 SN。
      *
-     * 带 SharedPreferences 缓存：优先读系统真实 SN，系统读取失败时才回退缓存过的
-     * DWDEV 设备 SN，避免 CPU 序列号污染 RustDesk ID。
+     * 读取顺序：系统真实 SN（Build.getSerial/SERIAL）→ getprop 系统属性 →
+     * 本地缓存（含业务 app 经 ProvisionService 下发的 SN，任意厂家格式）。
      * @return SN 字符串；取不到（非定制系统环境）返回空串。
      */
     fun getCpuSerial(context: Context): String {
@@ -35,15 +35,30 @@ object SnHelper {
             return sn
         }
 
-        if (!cached.isNullOrEmpty() && cached.startsWith("DWDEV")) {
-            Log.d(TAG, "getDeviceSerialNumber from cache fallback: $cached")
+        if (!cached.isNullOrEmpty()) {
+            // 多厂家兼容：业务 app 经 ProvisionService 传入的 SN 也缓存于此，
+            // 不限定 DWDEV 前缀（v2 身份方案以缓存/系统 SN 为派生源）。
+            Log.i(TAG, "getDeviceSerialNumber from cache fallback: $cached")
             return cached
         }
 
-        if (!cached.isNullOrEmpty()) {
-            Log.w(TAG, "ignore non-DWDEV cached sn: $cached")
-        }
+        Log.w(TAG, "getDeviceSerialNumber returned empty")
         return ""
+    }
+
+    /**
+     * 保存业务 app 经 ProvisionService 下发的设备 SN（身份权威来源），
+     * 供后续启动直接使用（含被控端未启动时的冷启动路径）。
+     */
+    fun saveProvisionedSn(context: Context, sn: String) {
+        val prefs = context.getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_DEVICE_SN, sn).apply()
+        Log.i(TAG, "saveProvisionedSn: $sn")
+    }
+
+    /** 本地是否已有可用 SN（缓存或系统可读），决定开机是否自启服务。 */
+    fun hasIdentity(context: Context): Boolean {
+        return getCpuSerial(context).isNotEmpty()
     }
 
     private fun readDeviceSerial(): String {

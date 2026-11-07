@@ -57,6 +57,8 @@ const val KEY_START_ON_BOOT_OPT = "KEY_START_ON_BOOT_OPT"
 const val KEY_START_ON_BOOT_OPT_DISABLE = "KEY_START_ON_BOOT_OPT_DISABLE"
 // 被控端设备 SN 缓存（SnHelper 首次取到后持久化，避免 SDK 二次调用失败）。
 const val KEY_DEVICE_SN = "KEY_DEVICE_SN"
+// Rust 核心已成功启动过的标记（BootReceiver 开机自启的存量设备兼容门）。
+const val KEY_CORE_STARTED = "KEY_CORE_STARTED"
 const val KEY_APP_DIR_CONFIG_PATH = "KEY_APP_DIR_CONFIG_PATH"
 
 @SuppressLint("ConstantLocale")
