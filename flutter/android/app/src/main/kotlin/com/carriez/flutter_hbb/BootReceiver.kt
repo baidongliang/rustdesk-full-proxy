@@ -26,8 +26,9 @@ class BootReceiver : BroadcastReceiver() {
                 return
             }
 
-            // v2 身份方案：本地无 SN 时不自启（等业务 app 经 ProvisionService 拉起并下发 SN），
-            // 避免无身份设备以随机 ID 注册。已有 SN（含多厂家业务下发值）则注入后照常启动。
+            // v2 身份方案：本地缓存无 SN 时不自启（等业务 app 经 ProvisionService 拉起并
+            // 下发 SN），避免无身份设备注册。已有缓存 SN（业务 app 下发的粘性身份，任意
+            // 厂家格式）则注入后照常启动；ID 即该 SN 的归一化值。
             val savedSn = prefs.getString(KEY_DEVICE_SN, "").orEmpty()
             if (savedSn.isEmpty()) {
                 InputTraceLog.d(context, "no provisioned sn, skip auto start (waiting for provision)")

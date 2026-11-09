@@ -4,7 +4,7 @@ import 'package:flutter_hbb/desktop/pages/device_list_page.dart';
 import 'package:flutter_hbb/models/thingsboard_model.dart';
 
 void main() {
-  test('ThingsBoard device name falls back to remote control id', () {
+  test('device name is the remote control id (v2: id = sn = name)', () {
     final device = ThingsBoardRemoteDevice.fromJson({
       'id': {'entityType': 'DEVICE', 'id': 'tb-device-id'},
       'name': 'DWDEV202503260020',
@@ -16,18 +16,39 @@ void main() {
     expect(device.connectionId, 'DWDEV202503260020');
   });
 
-  test('device serial number overrides stale rustdesk id', () {
+  test('attributes sn/rustdesk_id are ignored; only name counts', () {
     final device = ThingsBoardRemoteDevice.fromJson({
       'id': {'entityType': 'DEVICE', 'id': 'tb-device-id'},
-      'name': '维护平板',
+      'name': '863106060133486',
       'active': true,
     }, const {
-      'sn': 'DWDEV202604260021',
+      'sn': 'cb94bd64cb0233ce',
       'rustdesk_id': '1697972170',
     });
 
-    expect(device.sn, 'DWDEV202604260021');
-    expect(device.connectionId, 'DWDEV202604260021');
+    expect(device.connectionId, '863106060133486');
+    expect(device.sn, '863106060133486');
+  });
+
+  test('pure numeric vendor sn is accepted without DWDEV prefix', () {
+    final device = ThingsBoardRemoteDevice.fromJson({
+      'id': {'entityType': 'DEVICE', 'id': 'tb-device-id'},
+      'name': '202604260020',
+      'active': true,
+    }, const {});
+
+    expect(device.sn, '202604260020');
+    expect(device.connectionId, '202604260020');
+  });
+
+  test('non-idiomatic name yields empty connection id (no control)', () {
+    final device = ThingsBoardRemoteDevice.fromJson({
+      'id': {'entityType': 'DEVICE', 'id': 'tb-device-id'},
+      'name': '维护平板(现场)',
+      'active': true,
+    }, const {});
+
+    expect(device.connectionId, '');
   });
 
   testWidgets('control button starts remote control with preset device',
@@ -62,7 +83,8 @@ void main() {
     await tester.pump();
 
     expect(connectedId, '1697972170');
-    expect(connectedPassword, 'xinzx2026');
+    // 密码 v2：由 ID 派生（snDerivedPassword），与被控端 Rust 侧算法对称。
+    expect(connectedPassword, snDerivedPassword('1697972170'));
   });
 
   testWidgets('login loads ThingsBoard devices and control connects',
@@ -94,7 +116,8 @@ void main() {
     await tester.pump();
 
     expect(connectedId, 'DWDEV202604260021');
-    expect(connectedPassword, 'custom-pass');
+    // 属性里的 password 仅作展示兜底；连接密码以 ID 派生（v2）为准。
+    expect(connectedPassword, snDerivedPassword('DWDEV202604260021'));
   });
 
   testWidgets('thingsboard uuid alone does not enable remote control',

@@ -3134,10 +3134,9 @@ pub mod server_side {
             }
         }
         // 无 UI 被控端：Dart main() 不运行，永久密码需由 Rust 兜底，否则控制端带密码
-        // 连接会被拒（"密码不正确"）。统一规则：SN（DWDEV/DEDEV...）前缀后的数字
-        // 派生密码 v2：以本机注册 ID（normalize 后）为派生源，与控制端按目标 ID
-        // 派生的算法完全对称（docs/sn-password-design.md，消息布局与 OTP STATIC
-        // 模式字节兼容）。任意厂家序列号格式通用；ID 变化时两端密码同步变化。
+        // 连接会被拒（"密码不正确"）。密码 v2：以本机注册 ID（normalize 后）为派生源，
+        // 与控制端按目标 ID 派生的算法完全对称（docs/sn-password-design.md，消息布局与
+        // OTP STATIC 模式字节兼容）。任意厂家序列号格式通用；ID 变化时两端密码同步变化。
         let id_norm = sn_password::normalize_sn(&config::Config::get_id());
         if id_norm.is_empty() {
             log::warn!("skip derived permanent password: device id is empty");
@@ -3172,8 +3171,9 @@ pub mod server_side {
             .insert("conn-type".to_owned(), "incoming".to_owned());
     }
 
-    /// Android 专用：写入设备 SN（由 SnHelper.getCpuSerial 取得），供 gen_id() 派生稳定 ID。
-    /// 必须在 Rust 核心 gen_id() 首次执行前调用（MainApplication.onCreate 最早处）。
+    /// Android 专用：写入业务 app 经 ProvisionService 下发的设备 SN（Kotlin 侧从
+    /// 持久化缓存读取），供 gen_id()/get_uuid() 派生稳定身份。必须在 Rust 核心
+    /// gen_id() 首次执行前调用（MainApplication.onCreate 最早处）。
     #[no_mangle]
     pub unsafe extern "system" fn Java_ffi_FFI_setAndroidSn(
         mut env: JNIEnv,
@@ -3184,10 +3184,9 @@ pub mod server_side {
         if !sn.is_empty() {
             *config::ANDROID_DEVICE_SN.write().unwrap() = sn.clone();
             log::info!(
-                "set android sn for stable id: {} len={} dwdev={}",
+                "set android sn for stable id: {} len={}",
                 sn,
-                sn.len(),
-                sn.starts_with("DWDEV")
+                sn.len()
             );
         } else {
             log::warn!("setAndroidSn called with empty sn");

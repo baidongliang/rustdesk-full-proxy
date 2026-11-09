@@ -793,6 +793,13 @@ impl RendezvousMediator {
     }
 
     async fn register_pk(&mut self, socket: Sink<'_>) -> ResultType<()> {
+        // 身份供给收紧：SN 必须由业务 app 经 ProvisionService 下发。无 SN 时不发
+        // 注册报文（Kotlin 侧无 SN 不会启动核心，这里是 Rust 侧兜底防御）。
+        #[cfg(target_os = "android")]
+        if config::Config::android_device_sn().is_none() {
+            log::info!("register_pk skipped: no provisioned sn (waiting for provision)");
+            return Ok(());
+        }
         // UUID_MISMATCH exponential backoff gate (see handle_resp): skip while
         // the backoff from the previous mismatch has not expired yet.
         if let Some(t) = *PK_MISMATCH_RETRY_UNTIL.lock().await {
@@ -861,6 +868,12 @@ impl RendezvousMediator {
     }
 
     async fn register_peer(&mut self, socket: Sink<'_>) -> ResultType<()> {
+        // 同 register_pk：无业务 app 下发的 SN 时不注册。
+        #[cfg(target_os = "android")]
+        if config::Config::android_device_sn().is_none() {
+            log::info!("register_peer skipped: no provisioned sn (waiting for provision)");
+            return Ok(());
+        }
         let solving = SOLVING_PK_MISMATCH.lock().await;
         if !(solving.is_empty() || *solving == self.host) {
             return Ok(());

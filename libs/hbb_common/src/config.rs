@@ -86,8 +86,9 @@ lazy_static::lazy_static! {
 #[cfg(target_os = "android")]
 lazy_static::lazy_static! {
     pub static ref ANDROID_RUSTLS_PLATFORM_VERIFIER_INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    /// Android 设备 SN，由 MainApplication 启动时通过 JNI 写入（SnHelper.getCpuSerial）。
-    /// gen_id() 优先用它派生稳定的 RustDesk ID，避免随机 ID 重装即变。
+    /// Android 设备 SN，唯一来源是业务 app 经 ProvisionService 下发并持久化的缓存，
+    /// 由 Kotlin 侧（ProvisionService/BootReceiver/MainService/MainApplication）经 JNI 写入。
+    /// gen_id()/get_uuid() 用它派生稳定身份；无注入值 = 无身份，不注册、ID 留空。
     pub static ref ANDROID_DEVICE_SN: RwLock<String> = RwLock::new(String::new());
 }
 
@@ -646,6 +647,11 @@ impl Config {
                     store = true;
                     break;
                 } else {
+                    // Android：无 SN（业务 app 未下发）属预期状态，ID 留空、不注册；
+                    // 桌面：通常是 MAC 读取失败。
+                    #[cfg(target_os = "android")]
+                    log::info!("no provisioned sn yet, id left empty (waiting for provision)");
+                    #[cfg(not(target_os = "android"))]
                     log::error!("Failed to generate new id");
                 }
             }
@@ -1045,15 +1051,21 @@ impl Config {
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
     fn gen_id() -> Option<String> {
-        // Android：用设备 SN 派生稳定 ID（避免随机 ID 重装即变）。
+        // Android：仅用业务 app 下发的 SN 派生稳定 ID；无 SN 时返回 None（ID 留空、
+        // 不注册，等 ProvisionService 下发），不做随机 ID 兜底。
         #[cfg(target_os = "android")]
         {
             if let Some(id) = Self::gen_id_from_android_sn() {
                 return Some(id);
             }
-            log::warn!("gen_id: no SN available, fallback to random");
+            log::info!("gen_id: no provisioned sn, id left empty (waiting for provision)");
+            return None;
         }
-        Self::get_auto_id()
+        // iOS：无 SN 供给链路，保留随机 ID。
+        #[cfg(target_os = "ios")]
+        {
+            Self::get_auto_id()
+        }
     }
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1086,24 +1098,17 @@ impl Config {
         })
     }
 
-    /// Android：取设备系统序列号（属性优先，其次 Kotlin 注入值）。
-    /// 供 lib.rs 的 get_uuid() 派生跨重装稳定的 uuid。
+    /// Android：取设备 SN（仅业务 app 经 ProvisionService 下发、Kotlin 注入的值；
+    /// 不读系统属性——SN 必须由业务 app 提供，无下发值即视为无身份）。
+    /// 供 gen_id()/get_uuid() 派生跨重装稳定的 ID 与 uuid。
     #[cfg(target_os = "android")]
     pub fn android_device_sn() -> Option<String> {
-        for prop in ["ro.boot.serialno", "ro.serialno"] {
-            let sn = Self::read_android_system_property(prop);
-            if Self::is_valid_android_sn(&sn) {
-                log::info!("android_device_sn: {} len={} value={}", prop, sn.len(), sn);
-                return Some(sn);
-            }
-        }
-
         let sn = ANDROID_DEVICE_SN.read().unwrap().clone();
         if Self::is_valid_android_sn(&sn) {
-            log::info!("android_device_sn: injected len={} value={}", sn.len(), sn);
+            log::info!("android_device_sn: provisioned len={} value={}", sn.len(), sn);
             return Some(sn);
         }
-        log::warn!("android_device_sn: no android sn available");
+        log::warn!("android_device_sn: no provisioned sn available");
         None
     }
 
@@ -1113,62 +1118,25 @@ impl Config {
         !sn.is_empty() && !sn.eq_ignore_ascii_case("unknown")
     }
 
-    #[cfg(target_os = "android")]
-    fn read_android_system_property(name: &str) -> String {
-        // 方式1：FFI __system_property_get（无 fork，app 进程内安全；
-        // std::process::Command 在 ART 多线程进程里 fork 有挂死风险，只作兜底）。
-        extern "C" {
-            fn __system_property_get(
-                name: *const std::os::raw::c_char,
-                value: *mut std::os::raw::c_char,
-            ) -> std::os::raw::c_int;
-        }
-        let mut buf = [0u8; 92];
-        if let Ok(name_c) = std::ffi::CString::new(name) {
-            let n = unsafe { __system_property_get(name_c.as_ptr(), buf.as_mut_ptr() as *mut _) };
-            if n > 0 {
-                return String::from_utf8_lossy(&buf[..n as usize]).to_string();
-            }
-        }
-
-        // 方式2：调 /system/bin/getprop（部分定制系统 FFI 读不到时兜底）
-        if let Ok(out) = std::process::Command::new("/system/bin/getprop")
-            .arg(name)
-            .output()
-        {
-            let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !v.is_empty() {
-                return v;
-            }
-        }
-        String::new()
-    }
-
-    /// 用 SN 派生稳定 RustDesk 自定义 ID。
-    ///
-    /// RustDesk custom id must match `^[a-zA-Z][\w-]{5,31}$`, so keep the
-    /// `DWDEV` prefix and use up to 27 normalized SN chars.
+    /// 用业务 app 下发的 SN 直接生成 RustDesk ID：归一化（大写、仅保留字母数字 _ -）
+    /// 后原样使用，不加任何前缀。OSS rustdesk-server 只校验 ID 长度（>=6，上限 253），
+    /// 不限字符内容，纯数字 SN 可直接注册；此处仍截断到 32 以兼顾展示与审计字段。
+    /// 归一化后不足 6 位的服务端会拒绝（返回 UUID_MISMATCH），正常 SN 不会这么短。
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     fn sn_to_id(sn: &str) -> String {
-        const PREFIX: &str = "DWDEV";
         const MAX_ID_LEN: usize = 32;
-        let mut normalized = sn
+        let id: String = sn
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
             .map(|c| c.to_ascii_uppercase())
-            .collect::<String>();
-        if normalized.starts_with(PREFIX) {
-            normalized.truncate(MAX_ID_LEN);
-            log::info!("gen_id from sn: {} -> id {}", sn, normalized);
-            return normalized;
-        }
-        let suffix_len = MAX_ID_LEN - PREFIX.len();
-        normalized.truncate(suffix_len);
-        let id = format!("{}{}", PREFIX, normalized);
+            .take(MAX_ID_LEN)
+            .collect();
         log::info!("gen_id from sn: {} -> id {}", sn, id);
         id
     }
 
+    // Android 不再用随机 ID 兜底（无 SN 即无 ID），本函数仅 iOS / 桌面使用。
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     fn get_auto_id() -> Option<String> {
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
@@ -1418,18 +1386,22 @@ impl Config {
     pub fn update_id() {
         // to-do: how about if one ip register a lot of ids?
         let id = Self::get_id();
+        // Android：ID 仅由 SN 派生，无 SN 时保留原 ID（不注册，等业务 app 下发），不做随机兜底。
         #[cfg(target_os = "android")]
-        let new_id = Self::gen_id().unwrap_or_else(|| {
-            rand::thread_rng()
-                .gen_range(1_000_000_000..2_000_000_000)
-                .to_string()
-        });
+        if let Some(new_id) = Self::gen_id() {
+            Config::set_id(&new_id);
+            log::info!("id updated from {} to {}", id, new_id);
+        } else {
+            log::warn!("update_id: no provisioned sn, keep id {}", id);
+        }
         #[cfg(not(target_os = "android"))]
-        let new_id = rand::thread_rng()
-            .gen_range(1_000_000_000..2_000_000_000)
-            .to_string();
-        Config::set_id(&new_id);
-        log::info!("id updated from {} to {}", id, new_id);
+        {
+            let new_id = rand::thread_rng()
+                .gen_range(1_000_000_000..2_000_000_000)
+                .to_string();
+            Config::set_id(&new_id);
+            log::info!("id updated from {} to {}", id, new_id);
+        }
     }
 
     /// Sets the local permanent password.
@@ -3757,10 +3729,11 @@ mod tests {
     }
 
     #[test]
-    fn test_sn_to_id_uses_dwdev_prefix_without_truncating_normal_sn() {
-        assert_eq!(Config::sn_to_id("DWDEV202604260020"), "DWDEV202604260020");
-        assert_eq!(Config::sn_to_id("202604260020"), "DWDEV202604260020");
-        assert!(crate::is_valid_custom_id("DWDEV202604260020"));
+    fn test_sn_to_id_normalizes_sn_without_prefix() {
+        assert_eq!(Config::sn_to_id("202604260020"), "202604260020");
+        assert_eq!(Config::sn_to_id("dwdev202604260020"), "DWDEV202604260020");
+        assert_eq!(Config::sn_to_id("yy1a-uu_i4ax06"), "YY1A-UU_I4AX06");
+        assert_eq!(Config::sn_to_id("yy1auu_i4ax06-25x"), "YY1AUU_I4AX06-25X");
     }
 
     #[test]

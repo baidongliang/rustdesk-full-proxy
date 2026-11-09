@@ -26,8 +26,8 @@ import kotlin.concurrent.thread
  * 2. 设备 root（su 可用）：execRoot 执行 settings 命令。
  * 3. 都不可用：仅上报 startup_health，等 [deploy_silent_perms.sh] 兜底。
  *
- * 投屏免框不走本类：主路径是 MainApplication 的
- * DwSecure.registerSafeProgram（定制 SystemUI 自动放行授权框）。
+ * 投屏免框不走本类：dewod SDK（registerSafeProgram）已移除，授权框确认依赖
+ * MainService.autoClickProjectionConsent（root）或人工点击。
  */
 object SilentPermsHelper {
     private const val TAG = "SilentPerms"

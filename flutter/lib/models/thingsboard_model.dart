@@ -76,24 +76,11 @@ class ThingsBoardRemoteDevice {
     final name = _stringFromDynamic(json['name']) ?? '';
     final label = _stringFromDynamic(json['label']);
     final type = _stringFromDynamic(json['type']);
-    final sn = _firstNonEmptyString([
-          ..._valuesForKeys(attributes, _snKeys),
-          ..._valuesForKeys(additionalInfo, _snKeys),
-          json['sn'],
-          json['serialNumber'],
-          _deviceSnCandidate(label),
-          _deviceSnCandidate(name),
-        ]) ??
-        '';
 
-    final connectionId = _firstNonEmptyString([
-          sn,
-          ..._valuesForKeys(attributes, _connectionIdKeys),
-          ..._valuesForKeys(additionalInfo, _connectionIdKeys),
-          json['rustdeskId'],
-          json['rustdesk_id'],
-        ]) ??
-        '';
+    // 远控 ID 一律取设备 name（业务约定：ThingsBoard 设备名即设备 SN/IMEI，
+    // 也就是被控端注册 ID 的来源）。不再从 sn/rustdesk_id 等属性取——
+    // 属性里的 sn 可能被厂家 SDK 写入安卓 id 等非 SN 值，不可作为身份。
+    final connectionId = _deviceSnCandidate(name) ?? '';
 
     return ThingsBoardRemoteDevice(
       thingsBoardId: thingsBoardId,
@@ -103,11 +90,8 @@ class ThingsBoardRemoteDevice {
       online: json['online'] == true || json['active'] == true,
       lastActivityTime: _intFromDynamic(json['lastActivityTime']),
       connectionId: connectionId,
-      sn: sn,
-      password: _firstNonEmptyString([
-        ..._valuesForKeys(attributes, _passwordKeys),
-        ..._valuesForKeys(additionalInfo, _passwordKeys),
-      ]),
+      sn: connectionId,
+      password: null,
     );
   }
 }
@@ -198,11 +182,8 @@ class ThingsBoardClient implements ThingsBoardDeviceRepository {
         continue;
       }
       final deviceJson = Map<String, dynamic>.from(item);
-      final deviceId = _stringFromDynamic(deviceJson['id']);
-      final attributes = deviceId == null || deviceId.isEmpty
-          ? <String, dynamic>{}
-          : await _fetchDeviceAttributes(session, deviceId);
-      devices.add(ThingsBoardRemoteDevice.fromJson(deviceJson, attributes));
+      // 远控 ID 只取设备 name（与被控端"ID=SN"一致），无需读取设备属性。
+      devices.add(ThingsBoardRemoteDevice.fromJson(deviceJson, const {}));
     }
     return devices;
   }
@@ -223,6 +204,8 @@ class ThingsBoardClient implements ThingsBoardDeviceRepository {
     ThingsBoardSession session,
     String deviceId,
   ) async {
+    // 远控 ID 已改为只取设备 name，设备属性不再参与身份解析；保留此方法仅为
+    // 兼容旧调用方（当前 fetchDevices 不再调用）。后续可整体移除。
     final url = Uri.parse(
             '${session.serverUrl}/api/plugins/telemetry/DEVICE/$deviceId/values/attributes')
         .replace(queryParameters: {'keys': _attributeKeys.join(',')});
@@ -392,7 +375,9 @@ String? _deviceSnCandidate(String? value) {
     return null;
   }
   final normalized = trimmed.replaceAll(RegExp(r'\s+'), '');
-  return RegExp(r'^DWDEV[A-Za-z0-9_-]{6,27}$').hasMatch(normalized)
+  // v2 身份方案：SN 由业务 app 下发，任意厂家格式（不限 DWDEV 前缀、允许纯数字）；
+  // 与被控端 ID 规则一致：字母数字 _ -，6~32 位。
+  return RegExp(r'^[A-Za-z0-9_-]{6,32}$').hasMatch(normalized)
       ? normalized
       : null;
 }

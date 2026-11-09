@@ -135,6 +135,4 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib") { version { strictly("1.9.10") } }
     implementation 'com.caverock:androidsvg-aar:1.4'
     implementation "rustls:rustls-platform-verifier:0.1.1"
-    // 定制系统 SDK（仅用于获取设备 SN + 注册安全程序）
-    implementation(fileTree("libs"))
 }

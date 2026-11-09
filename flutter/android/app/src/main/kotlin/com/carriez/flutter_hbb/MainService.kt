@@ -288,7 +288,16 @@ class MainService : Service() {
             prefs.edit().putString(KEY_APP_DIR_CONFIG_PATH, configPath).apply()
             InputTraceLog.w(applicationContext, "config path missing, fallback to $configPath")
         }
-        FFI.startServer(configPath, "")
+        // v2 身份方案：本地缓存无 SN（业务 app 未下发）不启动 Rust 核心、不做任何注册——
+        // 等业务 app 拉起并下发 SN 后由 onStartCommand 补启核心。ID 即缓存 SN 的归一化值。
+        val savedSn = prefs.getString(KEY_DEVICE_SN, "").orEmpty()
+        if (savedSn.isEmpty()) {
+            InputTraceLog.w(applicationContext, "no provisioned sn, rust core not started (waiting provision)")
+        } else {
+            FFI.setAndroidSn(savedSn)
+            FFI.startServer(configPath, "")
+            InputTraceLog.w(applicationContext, "core started sn=$savedSn")
+        }
 
         createForegroundNotification()
         // 投屏授权自愈：授权被前台 app 抢占/自动确认失败时周期性重试。
@@ -423,6 +432,14 @@ class MainService : Service() {
             createForegroundNotification()
             SilentPermsHelper.applyAsync(this, "service_start")
 
+            // v2 身份方案：本地缓存无 SN（业务 app 未下发）不启动核心/不注册，
+            // 等业务 app 下发后由 provision intent 补启
+            val savedSn = getSharedPreferences(KEY_SHARED_PREFERENCES, MODE_PRIVATE)
+                .getString(KEY_DEVICE_SN, "").orEmpty()
+            if (savedSn.isEmpty()) {
+                InputTraceLog.w(applicationContext, "no provisioned sn, rust core not started (waiting provision)")
+                return START_REDELIVER_INTENT
+            }
             if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
                 FFI.startService()
             }
@@ -470,7 +487,8 @@ class MainService : Service() {
      * 场景：授权框被前台应用（如书柜业务 app）覆盖、SystemUI 自动确认失败、
      * token 被系统回收等，都会导致 [_isReady] 一直为 false——控制端表现为
      * "已连接 等待画面传输"卡死。这里在服务存活期间周期检查：未就绪且距上次
-     * 请求超过 15 秒就重新发起授权（定制 SystemUI 会自动确认）。
+     * 请求超过 15 秒就重新发起授权（弹框确认依赖 autoClickProjectionConsent 的 root
+     * 自动点击或人工点击）。
      * 就绪后仅空转，开销可忽略。
      */
     private fun startProjectionWatchdog() {
