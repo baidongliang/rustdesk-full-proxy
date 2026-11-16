@@ -5,15 +5,24 @@ rem ============================================================
 rem  RustDesk host (controlled-end) one-click deployer - Windows
 rem  Usage: deploy_apk.bat [device_ip:port] [apk_path]
 rem    - device default: 192.168.1.107:5555
-rem    - apk default: rustdesk-host-0819.apk next to this script
+rem    - apk default: newest rustdesk-host-*.apk next to this script
+rem      (falls back to the repo root one level up)
 rem  Requires adb.exe in PATH (Android platform-tools)
 rem ============================================================
 
 set DEV=%1
 if "%DEV%"=="" set DEV=192.168.1.107:5555
 set APK=%2
-if "%APK%"=="" set APK=%~dp0rustdesk-host-0819.apk
 set PKG=cn.xinzx.rustdesk.android
+if "%APK%"=="" for /f "delims=" %%f in ('dir /b /a-d /o-d "%~dp0rustdesk-host-*.apk" 2^>nul') do if not defined APK set "APK=%~dp0%%f"
+if "%APK%"=="" for /f "delims=" %%f in ('dir /b /a-d /o-d "%~dp0..\rustdesk-host-*.apk" 2^>nul') do if not defined APK set "APK=%~dp0..\%%f"
+if "%APK%"=="" set "APK=%~dp0build\app\outputs\flutter-apk\app-release.apk"
+if "%APK%"=="" (
+  echo [FAILED] No rustdesk-host-*.apk found next to this script.
+  echo          Pass the apk path: deploy_apk.bat [device] path\to\apk
+  pause
+  exit /b 1
+)
 
 echo == Device: %DEV%
 echo == APK:    %APK%
