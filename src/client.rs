@@ -4085,21 +4085,25 @@ pub mod peer_online {
         ResultType, Stream,
     };
 
-    pub async fn query_online_states<F: FnOnce(Vec<String>, Vec<String>)>(ids: Vec<String>, f: F) {
+    pub async fn query_online_states<F: FnOnce(Vec<String>, Vec<String>, Option<String>)>(
+        ids: Vec<String>,
+        f: F,
+    ) {
         let test = false;
         if test {
             sleep(1.5).await;
             let mut onlines = ids;
             let offlines = onlines.drain((onlines.len() / 2)..).collect();
-            f(onlines, offlines)
+            f(onlines, offlines, None)
         } else {
             let query_timeout = std::time::Duration::from_millis(3_000);
             match query_online_states_(&ids, query_timeout).await {
                 Ok((onlines, offlines)) => {
-                    f(onlines, offlines);
+                    f(onlines, offlines, None);
                 }
                 Err(e) => {
                     log::debug!("query onlines, {}", &e);
+                    f(vec![], vec![], Some(e.to_string()));
                 }
             }
         }
@@ -4135,7 +4139,7 @@ pub mod peer_online {
             Ok(s) => s,
             Err(e) => {
                 log::debug!("Failed to create peers online stream, {e}");
-                return Ok((vec![], ids.clone()));
+                return Err(e);
             }
         };
         // TODO: Use long connections to avoid socket creation
@@ -4144,7 +4148,7 @@ pub mod peer_online {
         // An established connection was aborted by the software in your host machine. (os error 10053)
         if let Err(e) = socket.send(&msg_out).await {
             log::debug!("Failed to send peers online states query, {e}");
-            return Ok((vec![], ids.clone()));
+            return Err(e.into());
         }
         // Retry for 2 times to get the online response
         for _ in 0..2 {
@@ -4155,6 +4159,9 @@ pub mod peer_online {
                 match msg_in.union {
                     Some(rendezvous_message::Union::OnlineResponse(online_response)) => {
                         let states = online_response.states;
+                        if states.len() < (ids.len() + 7) / 8 {
+                            bail!("Incomplete online states response");
+                        }
                         let mut onlines = Vec::new();
                         let mut offlines = Vec::new();
                         for i in 0..ids.len() {
@@ -4194,8 +4201,8 @@ pub mod peer_online {
                     "155323351".to_owned(),
                     "460952777".to_owned(),
                 ],
-                |onlines: Vec<String>, offlines: Vec<String>| {
-                    println!("onlines: {:?}, offlines: {:?}", &onlines, &offlines);
+                |onlines: Vec<String>, offlines: Vec<String>, error: Option<String>| {
+                    println!("onlines: {:?}, offlines: {:?}, error: {:?}", &onlines, &offlines, &error);
                 },
             )
             .await;

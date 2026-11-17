@@ -2346,7 +2346,10 @@ pub(super) mod async_tasks {
         loop {
             match rx_onlines.recv() {
                 Ok(ids) => {
-                    crate::client::peer_online::query_online_states(ids, handle_query_onlines).await
+                    let queried_ids = ids.clone();
+                    crate::client::peer_online::query_online_states(ids, move |onlines, offlines, error| {
+                        handle_query_onlines(queried_ids, onlines, offlines, error)
+                    }).await
                 }
                 _ => {
                     // unreachable!
@@ -2366,11 +2369,18 @@ pub(super) mod async_tasks {
         Ok(())
     }
 
-    fn handle_query_onlines(onlines: Vec<String>, offlines: Vec<String>) {
+    fn handle_query_onlines(
+        ids: Vec<String>,
+        onlines: Vec<String>,
+        offlines: Vec<String>,
+        error: Option<String>,
+    ) {
         let data = HashMap::from([
             ("name", "callback_query_onlines".to_owned()),
+            ("ids", ids.join(",")),
             ("onlines", onlines.join(",")),
             ("offlines", offlines.join(",")),
+            ("error", error.unwrap_or_default()),
         ]);
         let _res = super::push_global_event(
             super::APP_TYPE_MAIN,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -5,8 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 import '../../common.dart';
-import '../../consts.dart';
-import '../../models/thingsboard_model.dart';
+import '../../models/rustdesk_online_model.dart';
+import '../../models/school_device_model.dart';
 
 typedef DeviceConnectHandler = void Function(
   BuildContext context,
@@ -14,15 +15,21 @@ typedef DeviceConnectHandler = void Function(
   String? password,
 });
 
+enum RustDeskOnlineStatus { checking, online, offline, failed }
+
 class DeviceListPage extends StatefulWidget {
   final DeviceConnectHandler? connectHandler;
-  final ThingsBoardDeviceRepository? repository;
-  final List<ThingsBoardRemoteDevice>? initialDevices;
+  final SchoolDeviceRepository? repository;
+  final RustDeskOnlineRepository? onlineRepository;
+  final School? initialSchool;
+  final List<SchoolDevice>? initialDevices;
 
   const DeviceListPage({
     Key? key,
     this.connectHandler,
     this.repository,
+    this.onlineRepository,
+    this.initialSchool,
     this.initialDevices,
   }) : super(key: key);
 
@@ -31,36 +38,62 @@ class DeviceListPage extends StatefulWidget {
 }
 
 class _DeviceListPageState extends State<DeviceListPage> {
-  late final ThingsBoardDeviceRepository _repository;
-  late final TextEditingController _serverController;
-  late final TextEditingController _usernameController;
-  late final TextEditingController _passwordController;
-
-  ThingsBoardSession? _session;
-  List<ThingsBoardRemoteDevice> _devices = const [];
-  bool _loggingIn = false;
+  late final SchoolDeviceRepository _repository;
+  late final RustDeskOnlineRepository _onlineRepository;
+  late final TextEditingController _schoolController;
+  late final TextEditingController _deviceController;
+  final FocusNode _schoolFocusNode = FocusNode();
+  final LayerLink _schoolLayerLink = LayerLink();
+  final GlobalKey _schoolFieldKey = GlobalKey();
+  final Object _schoolTapGroup = Object();
+  final ScrollController _tableHorizontalController = ScrollController();
+  OverlayEntry? _schoolOverlay;
+  Timer? _schoolSearchTimer;
+  Timer? _statusRefreshTimer;
+  Timer? _statusTimeout;
+  School? _selectedSchool;
+  List<School> _schoolOptions = const [];
+  List<SchoolDevice> _devices = const [];
+  bool _loadingSchools = false;
   bool _loadingDevices = false;
+  bool _schoolSearchDone = false;
+  bool _hasSearched = false;
   String? _error;
-  DateTime? _lastUpdatedAt;
+  Map<String, RustDeskOnlineStatus> _onlineStatuses = {};
+  Set<String> _pendingStatusIds = {};
+  int _schoolSearchVersion = 0;
+  int _deviceSearchVersion = 0;
+  int _statusQueryVersion = 0;
 
   @override
   void initState() {
     super.initState();
-    _repository = widget.repository ?? ThingsBoardClient();
-    _serverController =
-        TextEditingController(text: kThingsBoardDefaultServerUrl);
-    _usernameController =
-        TextEditingController(text: kThingsBoardDefaultUsername);
-    _passwordController =
-        TextEditingController(text: kThingsBoardDefaultPassword);
+    _repository = widget.repository ?? SchoolDeviceClient();
+    _onlineRepository = widget.onlineRepository ?? RustDeskOnlineClient();
+    _onlineRepository.subscribe(_handleOnlineStatus);
+    _selectedSchool = widget.initialSchool;
+    _schoolController =
+        TextEditingController(text: widget.initialSchool?.schoolName ?? '');
+    _deviceController = TextEditingController();
     _devices = widget.initialDevices ?? const [];
+    _hasSearched = widget.initialDevices != null;
+    if (_devices.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _startOnlineStatusUpdates();
+      });
+    }
   }
 
   @override
   void dispose() {
-    _serverController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
+    _schoolSearchTimer?.cancel();
+    _stopOnlineStatusUpdates();
+    _onlineRepository.unsubscribe();
+    _hideSchoolOptions();
+    _schoolFocusNode.dispose();
+    _tableHorizontalController.dispose();
+    _schoolController.dispose();
+    _deviceController.dispose();
     super.dispose();
   }
 
@@ -72,42 +105,39 @@ class _DeviceListPageState extends State<DeviceListPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 18),
             child: Row(
               children: [
-                Text(
-                  '设备列表',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const Spacer(),
-                if (_session != null) ...[
-                  IconButton(
-                    tooltip: '刷新',
-                    onPressed: _loadingDevices ? null : _refreshDevices,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: _logout,
-                    child: const Text('退出登录'),
-                  ),
-                ],
+                Text('设备列表', style: Theme.of(context).textTheme.titleLarge),
               ],
             ),
           ),
           const Divider(height: 1),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              children: [
-                _buildLoginOrStatus(context),
-                if (_error != null) ...[
-                  const SizedBox(height: 10),
-                  _buildError(context, _error!),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildFilter(context),
+                  const SizedBox(height: 28),
+                  Row(
+                    children: [
+                      Text('查询结果',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(width: 10),
+                      Text('共 ${_devices.length} 台设备',
+                          style: Theme.of(context).textTheme.bodySmall),
+                      if (_error != null) ...[
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildError(context, _error!)),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(child: _buildDevicesArea(context)),
                 ],
-                const SizedBox(height: 12),
-                _buildDevicesArea(context),
-              ],
+              ),
             ),
           ),
         ],
@@ -115,360 +145,668 @@ class _DeviceListPageState extends State<DeviceListPage> {
     );
   }
 
-  Widget _buildLoginOrStatus(BuildContext context) {
-    final session = _session;
-    if (session != null) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).dividerColor),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.account_circle, size: 20, color: MyTheme.accent),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                '${session.username} · ${session.role} · ${session.serverUrl}',
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 12),
-            if (_lastUpdatedAt != null) ...[
-              const SizedBox(width: 12),
-              Text(
-                '更新 ${_formatTime(_lastUpdatedAt!)}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ],
-        ),
-      );
-    }
-
+  Widget _buildFilter(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: _buildTextField(
-                  controller: _serverController,
-                  label: 'ThingsBoard 地址',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildTextField(
-                  controller: _usernameController,
-                  label: '账号',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildTextField(
-                  controller: _passwordController,
-                  label: '密码',
-                  obscureText: true,
-                  onSubmitted: (_) => _login(),
-                ),
-              ),
-              const SizedBox(width: 10),
-              SizedBox(
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: _loggingIn ? null : _login,
-                  child: _loggingIn
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('登录'),
-                ),
-              ),
-            ],
+        color: theme.cardColor,
+        border: Border.all(color: theme.dividerColor),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: theme.shadowColor.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final schoolField = _buildSchoolField(context);
+        final deviceField = _buildDeviceField(context);
+        final buttons = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ElevatedButton(
+              onPressed: _loadingDevices ? null : _queryDevices,
+              child: const Text('查询'),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton(onPressed: _reset, child: const Text('重置')),
+          ],
+        );
+        if (constraints.maxWidth < 680) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              schoolField,
+              const SizedBox(height: 14),
+              deviceField,
+              const SizedBox(height: 14),
+              buttons,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 3, child: schoolField),
+            const SizedBox(width: 14),
+            Expanded(flex: 2, child: deviceField),
+            const SizedBox(width: 14),
+            Padding(padding: const EdgeInsets.only(top: 25), child: buttons),
+          ],
+        );
+      }),
     );
   }
 
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required String label,
-    bool obscureText = false,
-    ValueChanged<String>? onSubmitted,
-  }) {
-    return TextField(
-      controller: controller,
-      obscureText: obscureText,
-      onSubmitted: onSubmitted,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-        isDense: true,
-      ),
+  Widget _buildSchoolField(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('学校'),
+        const SizedBox(height: 7),
+        TapRegion(
+          groupId: _schoolTapGroup,
+          onTapOutside: (_) {
+            _schoolFocusNode.unfocus();
+            _hideSchoolOptions();
+          },
+          child: CompositedTransformTarget(
+            link: _schoolLayerLink,
+            child: TextField(
+              key: _schoolFieldKey,
+              controller: _schoolController,
+              focusNode: _schoolFocusNode,
+              onChanged: _onSchoolChanged,
+              onTap: _onSchoolTap,
+              decoration: const InputDecoration(
+                hintText: '输入学校名称搜索并选择',
+                prefixIcon: Icon(Icons.search, size: 20),
+                suffixIcon: Icon(Icons.keyboard_arrow_down),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDeviceField(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('设备编号'),
+        const SizedBox(height: 7),
+        TextField(
+          controller: _deviceController,
+          onChanged: (_) {
+            ++_deviceSearchVersion;
+            _stopOnlineStatusUpdates();
+            setState(() {
+              _devices = const [];
+              _hasSearched = false;
+              _loadingDevices = false;
+              _error = null;
+            });
+          },
+          onSubmitted: (_) => _queryDevices(),
+          decoration: const InputDecoration(
+            hintText: '可选，输入设备编号',
+            prefixIcon: Icon(Icons.numbers, size: 20),
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildDevicesArea(BuildContext context) {
     if (_loadingDevices) {
-      return const SizedBox(
-        height: 180,
-        child: Center(child: CircularProgressIndicator()),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
     if (_devices.isEmpty) {
-      return SizedBox(
-        height: 180,
-        child: Center(
-          child: Text(
-            _session == null ? '登录后读取设备' : '暂无设备',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
+      return Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(8),
         ),
+        child: Text(_hasSearched ? '没有找到符合条件的设备' : '请先搜索并选择学校'),
       );
     }
-    return Column(
-      children: [
-        for (var i = 0; i < _devices.length; i++) ...[
-          if (i > 0) const SizedBox(height: 10),
-          _buildDeviceCard(context, _devices[i]),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildDeviceCard(
-      BuildContext context, ThingsBoardRemoteDevice device) {
-    final canControl = device.connectionId.trim().isNotEmpty;
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(
-          color: Theme.of(context).dividerColor,
-        ),
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('device-table-viewport'),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        border: Border.all(color: theme.dividerColor),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: MyTheme.accent.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Icon(
-                Icons.tablet_mac,
-                size: 20,
-                color: MyTheme.accent,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
+      child: LayoutBuilder(builder: (context, constraints) {
+        final tableWidth =
+            constraints.maxWidth < 1120 ? 1120.0 : constraints.maxWidth;
+        const weights = [1.45, 1.55, 1.6, 1.65, 1.05, 1.1, 1.4, 0.95];
+        const totalWeight = 10.75;
+        final widths = [
+          for (final weight in weights) tableWidth * weight / totalWeight,
+        ];
+        return Scrollbar(
+          controller: _tableHorizontalController,
+          thumbVisibility: true,
+          scrollbarOrientation: ScrollbarOrientation.bottom,
+          child: SingleChildScrollView(
+            controller: _tableHorizontalController,
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: tableWidth,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          device.name,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildStatusChip(
+                  Container(
+                    key: const Key('device-table-header'),
+                    height: 48,
+                    color: theme.colorScheme.primary.withOpacity(0.05),
+                    child: Row(children: [
+                      _tableCell(const Text('设备编号'), widths[0]),
+                      _tableCell(const Text('学校'), widths[1]),
+                      _tableCell(const Text('位置'), widths[2]),
+                      _tableCell(const Text('设备类型 / 型号'), widths[3]),
+                      _tableCell(const Text('设备状态'), widths[4]),
+                      _tableCell(const Text('软件版本'), widths[5]),
+                      _tableCell(const Text('RustDesk 状态'), widths[6]),
+                      _tableCell(const Text('操作'), widths[7]),
+                    ]),
+                  ),
+                  Divider(height: 1, color: theme.dividerColor),
+                  Expanded(
+                    child: ListView.builder(
+                      key: const Key('device-rows-scroll'),
+                      itemCount: _devices.length,
+                      itemBuilder: (context, index) => _buildDeviceRow(
                         context,
-                        device.online,
-                        device.online ? '在线' : '离线',
+                        _devices[index],
+                        widths,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  if (device.sn.isNotEmpty)
-                    Text(
-                      'SN: ${device.sn}',
-                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                  Text(
-                    '远控ID: ${device.connectionId}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text(
-                    'ThingsBoard ID: ${device.thingsBoardId}',
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 12),
-            ElevatedButton(
-              onPressed: canControl ? () => _onControl(device) : null,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                child: Text('控制'),
-              ),
-            ),
-          ],
-        ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _tableCell(Widget child, double width) {
+    return SizedBox(
+      width: width,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Align(alignment: Alignment.centerLeft, child: child),
       ),
     );
   }
 
-  Widget _buildStatusChip(BuildContext context, bool active, String text) {
-    final color = active ? const Color(0xFF1B8F4D) : const Color(0xFF9A4D2D);
-    return Tooltip(
-      message: text,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: color),
-        ),
+  Widget _buildDeviceRow(
+      BuildContext context, SchoolDevice device, List<double> widths) {
+    final school = _selectedSchool;
+    return Container(
+      height: 68,
+      decoration: BoxDecoration(
+        border:
+            Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
       ),
+      child: Row(children: [
+        _tableCell(
+          SelectableText(device.deviceNo, maxLines: 1),
+          widths[0],
+        ),
+        _tableCell(
+          _twoLines(
+            school?.schoolName ?? '',
+            school == null ? '' : '${school.cityName} / ${school.countyName}',
+            context,
+          ),
+          widths[1],
+        ),
+        _tableCell(
+          Text(device.location, maxLines: 2, overflow: TextOverflow.ellipsis),
+          widths[2],
+        ),
+        _tableCell(
+          _twoLines(device.deviceTypeDesc, device.deviceModelName, context),
+          widths[3],
+        ),
+        _tableCell(_buildDeviceStatus(device.status), widths[4]),
+        _tableCell(
+          Text(device.versionCode,
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+          widths[5],
+        ),
+        _tableCell(_buildOnlineStatus(device.deviceNo), widths[6]),
+        _tableCell(
+          OutlinedButton(
+            onPressed: device.deviceNo.trim().isEmpty
+                ? null
+                : () => _onControl(device),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 32),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            ),
+            child: const Text('控制'),
+          ),
+          widths[7],
+        ),
+      ]),
     );
+  }
+
+  Widget _twoLines(String first, String second, BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(first, maxLines: 1, overflow: TextOverflow.ellipsis),
+        if (second.isNotEmpty)
+          Text(second,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
+  }
+
+  Widget _buildDeviceStatus(int? status) {
+    final label = status == 1
+        ? '在线'
+        : status == 0
+            ? '离线'
+            : '未知';
+    final color = status == 1
+        ? const Color(0xFF1B8F4D)
+        : Theme.of(context).textTheme.bodySmall?.color;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.circle, size: 7, color: color),
+      const SizedBox(width: 6),
+      Text(label, style: TextStyle(color: color)),
+    ]);
+  }
+
+  Widget _buildOnlineStatus(String deviceNo) {
+    final status = _onlineStatuses[deviceNo] ?? RustDeskOnlineStatus.checking;
+    final label = switch (status) {
+      RustDeskOnlineStatus.online => '在线',
+      RustDeskOnlineStatus.offline => '离线',
+      RustDeskOnlineStatus.failed => '查询失败',
+      RustDeskOnlineStatus.checking => '查询中',
+    };
+    final color = switch (status) {
+      RustDeskOnlineStatus.online => const Color(0xFF1B8F4D),
+      RustDeskOnlineStatus.failed => const Color(0xFFB0582F),
+      _ => Theme.of(context).textTheme.bodySmall?.color,
+    };
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.circle, size: 7, color: color),
+      const SizedBox(width: 6),
+      Text(label, style: TextStyle(color: color)),
+    ]);
   }
 
   Widget _buildError(BuildContext context, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFC63D32).withOpacity(0.10),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        text,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFFC63D32),
-            ),
-      ),
+    return Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context)
+          .textTheme
+          .bodyMedium
+          ?.copyWith(color: const Color(0xFFC63D32)),
     );
   }
 
-  Future<void> _login() async {
-    final username = _usernameController.text.trim();
-    final password = _passwordController.text;
-    final serverUrl = _serverController.text.trim();
-    if (serverUrl.isEmpty || username.isEmpty || password.isEmpty) {
-      setState(() => _error = '请填写 ThingsBoard 地址、账号和密码');
-      return;
-    }
-
+  void _onSchoolChanged(String value) {
+    _schoolSearchTimer?.cancel();
+    final version = ++_schoolSearchVersion;
+    ++_deviceSearchVersion;
+    _stopOnlineStatusUpdates();
+    final name = value.trim();
     setState(() {
-      _loggingIn = true;
+      _selectedSchool = null;
+      _schoolOptions = const [];
+      _schoolSearchDone = false;
+      _loadingSchools = false;
+      _loadingDevices = false;
+      _devices = const [];
+      _hasSearched = false;
       _error = null;
     });
-    try {
-      final session = await _repository.login(
-        serverUrl: serverUrl,
-        username: username,
-        password: password,
+    if (name.isNotEmpty) {
+      _showSchoolOptions();
+      _schoolSearchTimer = Timer(const Duration(milliseconds: 300),
+          () => _searchSchools(name, version));
+    } else {
+      _hideSchoolOptions();
+    }
+    _schoolOverlay?.markNeedsBuild();
+  }
+
+  void _showSchoolOptions() {
+    if (_schoolController.text.trim().isEmpty || _schoolOverlay != null) return;
+    final field = _schoolFieldKey.currentContext?.findRenderObject();
+    if (field is! RenderBox) return;
+    _schoolOverlay = OverlayEntry(builder: (context) {
+      return CompositedTransformFollower(
+        link: _schoolLayerLink,
+        showWhenUnlinked: false,
+        offset: Offset(0, field.size.height + 4),
+        child: TapRegion(
+          groupId: _schoolTapGroup,
+          child: Material(
+            elevation: 8,
+            borderRadius: BorderRadius.circular(8),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              width: field.size.width,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 240),
+                child: _buildSchoolOptions(),
+              ),
+            ),
+          ),
+        ),
       );
-      if (!mounted) {
-        return;
-      }
-      setState(() => _session = session);
-      await _refreshDevices();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error = e.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _loggingIn = false);
-      }
+    });
+    Overlay.of(context).insert(_schoolOverlay!);
+  }
+
+  void _onSchoolTap() {
+    final name = _schoolController.text.trim();
+    if (name.isEmpty) return;
+    _showSchoolOptions();
+    if (_selectedSchool != null && !_loadingSchools) {
+      _searchSchools(name, ++_schoolSearchVersion);
     }
   }
 
-  Future<void> _refreshDevices() async {
-    final session = _session;
-    if (session == null) {
+  Widget _buildSchoolOptions() {
+    if (_loadingSchools || !_schoolSearchDone) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Text('正在搜索学校…'),
+      );
+    }
+    if (_schoolOptions.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Text('没有找到学校'),
+      );
+    }
+    return ListView.builder(
+      padding: EdgeInsets.zero,
+      shrinkWrap: true,
+      itemCount: _schoolOptions.length,
+      itemBuilder: (context, index) {
+        final school = _schoolOptions[index];
+        return ListTile(
+          dense: true,
+          title: Text(school.schoolName),
+          subtitle: Text('${school.cityName} / ${school.countyName}'),
+          onTap: () => _selectSchool(school),
+        );
+      },
+    );
+  }
+
+  void _hideSchoolOptions() {
+    _schoolOverlay?.remove();
+    _schoolOverlay?.dispose();
+    _schoolOverlay = null;
+  }
+
+  Future<void> _searchSchools(String name, int version) async {
+    if (!mounted || version != _schoolSearchVersion) return;
+    setState(() => _loadingSchools = true);
+    try {
+      final schools = await _repository.searchSchools(name);
+      if (!mounted || version != _schoolSearchVersion) return;
+      setState(() {
+        _schoolOptions = schools;
+        _schoolSearchDone = true;
+        _loadingSchools = false;
+      });
+      _schoolOverlay?.markNeedsBuild();
+    } catch (error) {
+      if (!mounted || version != _schoolSearchVersion) return;
+      setState(() {
+        _error = '学校查询失败：$error';
+        _schoolSearchDone = true;
+        _loadingSchools = false;
+      });
+      _schoolOverlay?.markNeedsBuild();
+    }
+  }
+
+  void _selectSchool(School school) {
+    _schoolSearchTimer?.cancel();
+    ++_schoolSearchVersion;
+    _hideSchoolOptions();
+    _schoolFocusNode.unfocus();
+    setState(() {
+      _selectedSchool = school;
+      _schoolController.text = school.schoolName;
+      _schoolOptions = const [];
+      _schoolSearchDone = false;
+      _error = null;
+    });
+  }
+
+  Future<void> _queryDevices() async {
+    final school = _selectedSchool;
+    if (school == null || _schoolController.text.trim() != school.schoolName) {
+      setState(() => _error = '请先从搜索结果中选择学校');
       return;
     }
+    final version = ++_deviceSearchVersion;
+    _hideSchoolOptions();
+    _stopOnlineStatusUpdates();
     setState(() {
       _loadingDevices = true;
+      _hasSearched = true;
+      _devices = const [];
       _error = null;
     });
     try {
-      final devices = await _repository.fetchDevices(session);
-      if (mounted) {
-        setState(() {
-          _devices = devices;
-          _lastUpdatedAt = DateTime.now();
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error = e.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _loadingDevices = false);
-      }
+      final devices = await _repository.fetchDevices(
+        schoolId: school.schoolId,
+        deviceNo: _deviceController.text.trim(),
+      );
+      if (!mounted || version != _deviceSearchVersion) return;
+      setState(() {
+        _devices = devices;
+        _loadingDevices = false;
+      });
+      _startOnlineStatusUpdates();
+    } catch (error) {
+      if (!mounted || version != _deviceSearchVersion) return;
+      setState(() {
+        _error = '设备查询失败：$error';
+        _loadingDevices = false;
+      });
     }
   }
 
-  void _logout() {
+  void _reset() {
+    _schoolSearchTimer?.cancel();
+    ++_schoolSearchVersion;
+    ++_deviceSearchVersion;
+    _hideSchoolOptions();
+    _stopOnlineStatusUpdates();
+    _schoolController.clear();
+    _deviceController.clear();
     setState(() {
-      _session = null;
+      _selectedSchool = null;
+      _schoolOptions = const [];
       _devices = const [];
+      _schoolSearchDone = false;
+      _loadingSchools = false;
+      _loadingDevices = false;
+      _hasSearched = false;
       _error = null;
-      _lastUpdatedAt = null;
     });
   }
 
-  void _onControl(ThingsBoardRemoteDevice device) {
-    // 密码只走 ID 派生规则 v2（与被控端 Rust sn_password 一致），不读
-    // ThingsBoard 属性——被控端启动即按自身 ID 派生写入永久密码，属性密码会
-    // 造成必然的"密码不正确"。
-    final password = snDerivedPassword(device.connectionId);
+  void _startOnlineStatusUpdates() {
+    _stopOnlineStatusUpdates();
+    final ids = _devices
+        .map((device) => device.deviceNo.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (ids.isEmpty) return;
+    setState(() {
+      _onlineStatuses = {
+        for (final id in ids) id: RustDeskOnlineStatus.checking,
+      };
+    });
+    _queryOnlineStatuses();
+    _statusRefreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _queryOnlineStatuses(),
+    );
+  }
+
+  void _stopOnlineStatusUpdates() {
+    ++_statusQueryVersion;
+    _statusRefreshTimer?.cancel();
+    _statusRefreshTimer = null;
+    _statusTimeout?.cancel();
+    _statusTimeout = null;
+    _pendingStatusIds = {};
+    _onlineStatuses = {};
+  }
+
+  Future<void> _queryOnlineStatuses() async {
+    if (!mounted || _pendingStatusIds.isNotEmpty) return;
+    final ids = _devices
+        .map((device) => device.deviceNo.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (ids.isEmpty) return;
+    final version = ++_statusQueryVersion;
+    _pendingStatusIds = ids;
+    setState(() {
+      for (final id in ids) {
+        _onlineStatuses[id] = RustDeskOnlineStatus.checking;
+      }
+    });
+    _statusTimeout?.cancel();
+    _statusTimeout = Timer(const Duration(seconds: 10), () {
+      if (mounted && version == _statusQueryVersion) {
+        _failPendingStatusQuery();
+      }
+    });
+    try {
+      await _onlineRepository.query(ids.toList());
+    } catch (error) {
+      if (mounted && version == _statusQueryVersion) {
+        _failPendingStatusQuery();
+      }
+    }
+  }
+
+  void _handleOnlineStatus(Map<String, dynamic> event) {
+    if (!mounted || _pendingStatusIds.isEmpty) return;
+    final ids = _splitOnlineIds(event['ids']).intersection(_pendingStatusIds);
+    if (ids.isEmpty) return;
+    final onlines = _splitOnlineIds(event['onlines']);
+    final offlines = _splitOnlineIds(event['offlines']);
+    final failed = (event['error']?.toString() ?? '').isNotEmpty;
+    setState(() {
+      for (final id in ids) {
+        _onlineStatuses[id] = failed
+            ? RustDeskOnlineStatus.failed
+            : onlines.contains(id)
+                ? RustDeskOnlineStatus.online
+                : offlines.contains(id)
+                    ? RustDeskOnlineStatus.offline
+                    : RustDeskOnlineStatus.failed;
+      }
+    });
+    _pendingStatusIds.removeAll(ids);
+    if (_pendingStatusIds.isEmpty) {
+      _statusTimeout?.cancel();
+      _statusTimeout = null;
+    }
+  }
+
+  Set<String> _splitOnlineIds(dynamic value) => value is String
+      ? value.split(',').where((id) => id.isNotEmpty).toSet()
+      : {};
+
+  void _failPendingStatusQuery() {
+    _statusTimeout?.cancel();
+    _statusTimeout = null;
+    setState(() {
+      for (final id in _pendingStatusIds) {
+        _onlineStatuses[id] = RustDeskOnlineStatus.failed;
+      }
+    });
+    _pendingStatusIds = {};
+  }
+
+  void _onControl(SchoolDevice device) {
+    final connectionId = device.deviceNo.trim();
+    final password = snDerivedPassword(connectionId);
     final connectHandler = widget.connectHandler;
     if (connectHandler != null) {
-      connectHandler(context, device.connectionId, password: password);
+      connectHandler(context, connectionId, password: password);
       return;
     }
-    connect(context, device.connectionId, password: password);
+    connect(context, connectionId, password: password);
   }
 }
 
-/// 统一密码规则 v2（与被控端 Rust sn_password 一致）：
-/// HMAC-SHA256(K, "RD-OTP-v1"|0x02|normalize(ID)|0x00|counter=0) 前 40bit，
-/// 按 32 字符去混淆表编码为 8 位。派生源为 ID 本身（normalize 后），任意厂家
-/// 序列号格式通用；ID 变化时两端密码同步变化。
-/// ID 不合规（normalize 为空）时返回 null，走手动输密码。
 String? snDerivedPassword(String connectionId) {
   const keyVersion = 'RD-OTP-v1';
   const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  // 与 Rust 侧 sn_password.rs 的 OTP_KEY_XORED/OTP_KEY_PAD 成对，改动需同步。
   const keyXored = [
-    0xe6, 0x1c, 0xf9, 0xcd, 0xcb, 0xad, 0x36, 0x7a, 0x90, 0xa7, 0x51, 0x4e,
-    0x3b, 0x10, 0x5c, 0x02, 0xf9, 0x22, 0xc5, 0xfd, 0x6f, 0xe7, 0xb0, 0x76,
-    0xad, 0x88, 0x10, 0x75, 0xd6, 0x86, 0xd9, 0x33,
+    0xe6,
+    0x1c,
+    0xf9,
+    0xcd,
+    0xcb,
+    0xad,
+    0x36,
+    0x7a,
+    0x90,
+    0xa7,
+    0x51,
+    0x4e,
+    0x3b,
+    0x10,
+    0x5c,
+    0x02,
+    0xf9,
+    0x22,
+    0xc5,
+    0xfd,
+    0x6f,
+    0xe7,
+    0xb0,
+    0x76,
+    0xad,
+    0x88,
+    0x10,
+    0x75,
+    0xd6,
+    0x86,
+    0xd9,
+    0x33,
   ];
   final keyPad = ascii.encode('rd-otp-pad-0123456789abcdef-xyz!');
   final masterKey = Uint8List.fromList(
@@ -482,29 +820,32 @@ String? snDerivedPassword(String connectionId) {
     0x02,
     ...ascii.encode(id),
     0x00,
-    0, 0, 0, 0, 0, 0, 0, 0, // counter，STATIC 模式恒为 0
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
   ];
   final digest = Hmac(sha256, masterKey).convert(msg).bytes;
-  var v = 0;
-  for (var i = 0; i < 5; i++) {
-    v = (v << 8) | digest[i];
+  var value = 0;
+  for (var index = 0; index < 5; index++) {
+    value = (value << 8) | digest[index];
   }
-  return List.generate(8, (i) => alphabet[(v >> (5 * (7 - i))) & 31]).join();
+  return List.generate(
+      8, (index) => alphabet[(value >> (5 * (7 - index))) & 31]).join();
 }
 
-/// 与 Rust normalize_sn 一致：去 @server 后缀、大写、仅保留字母数字。
 String _normalizeSnId(String raw) {
   final id = raw.split('@').first.trim().toUpperCase();
-  final sb = StringBuffer();
-  for (final c in id.codeUnits) {
-    if ((c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A)) {
-      sb.writeCharCode(c);
+  final buffer = StringBuffer();
+  for (final character in id.codeUnits) {
+    if ((character >= 0x30 && character <= 0x39) ||
+        (character >= 0x41 && character <= 0x5A)) {
+      buffer.writeCharCode(character);
     }
   }
-  return sb.toString();
-}
-
-String _formatTime(DateTime time) {
-  String pad(int value) => value.toString().padLeft(2, '0');
-  return '${pad(time.hour)}:${pad(time.minute)}:${pad(time.second)}';
+  return buffer.toString();
 }
