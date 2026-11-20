@@ -513,10 +513,18 @@ impl RendezvousMediator {
                     if last_recv_msg.elapsed().as_millis() as u64 > rz.keep_alive as u64 * 3 / 2 {
                         bail!("Rendezvous connection is timeout");
                     }
-                    if (!Config::get_key_confirmed() ||
-                        !Config::get_host_key_confirmed(&rz.host_prefix)) &&
-                        last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
-                        rz.register_pk(Sink::Stream(&mut conn)).await?;
+                    // key 未确认阶段每 15s 重发 register_pk；确认后周期性发 register_peer：
+                    // hbbs 在线判定要求 last_reg_time < 30s（REG_TIMEOUT），ws 长连接本身
+                    // 一直存活（打洞/中继可正常控制），缺了这个心跳设备会永远显示离线。
+                    if !Config::get_key_confirmed() ||
+                        !Config::get_host_key_confirmed(&rz.host_prefix)
+                    {
+                        if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
+                            rz.register_pk(Sink::Stream(&mut conn)).await?;
+                            last_register_sent = Some(Instant::now());
+                        }
+                    } else if last_register_sent.map(|x| x.elapsed().as_millis() as i64).unwrap_or(REG_INTERVAL) >= REG_INTERVAL {
+                        rz.register_peer(Sink::Stream(&mut conn)).await?;
                         last_register_sent = Some(Instant::now());
                     }
                 }
