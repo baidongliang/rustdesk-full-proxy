@@ -423,12 +423,12 @@ class _DeviceListPageState extends State<DeviceListPage> {
   }
 
   Widget _buildDeviceStatus(int? status) {
-    final label = status == 1
+    final label = status == 0
         ? '在线'
-        : status == 0
+        : status == 1
             ? '离线'
             : '未知';
-    final color = status == 1
+    final color = status == 0
         ? const Color(0xFF1B8F4D)
         : Theme.of(context).textTheme.bodySmall?.color;
     return Row(mainAxisSize: MainAxisSize.min, children: [
