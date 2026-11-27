@@ -4081,7 +4081,7 @@ pub mod peer_online {
         log,
         rendezvous_proto::*,
         sleep,
-        socket_client::connect_tcp,
+        socket_client::connect_tcp_local,
         ResultType, Stream,
     };
 
@@ -4121,7 +4121,11 @@ pub mod peer_online {
             bail!("Invalid server address: {}", rendezvous_server);
         }
         let online_server = format!("{}:{}", tmp[0], port - 1);
-        connect_tcp(online_server, CONNECT_TIMEOUT).await
+        // This port serves plain, length-framed protobuf only. connect_tcp()
+        // upgrades to websocket when allow-websocket is on, and hbbs does not
+        // handle OnlineRequest on its ws channel, so every query would time out
+        // and all peers would show as offline.
+        connect_tcp_local(online_server, None, CONNECT_TIMEOUT).await
     }
 
     async fn query_online_states_(
