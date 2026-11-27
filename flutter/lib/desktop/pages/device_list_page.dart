@@ -291,7 +291,9 @@ class _DeviceListPageState extends State<DeviceListPage> {
       child: LayoutBuilder(builder: (context, constraints) {
         final tableWidth =
             constraints.maxWidth < 1120 ? 1120.0 : constraints.maxWidth;
-        const weights = [1.45, 1.55, 1.6, 1.65, 1.05, 1.1, 1.4, 0.95];
+        // 两个状态列按内容宽度（圆点 + 2~4 个汉字）收紧，表头折成两行；省出的宽度给设备编号，
+        // 编号较长（如 DwDEVTEST202608210001）时才显示得全。
+        const weights = [2.25, 1.55, 1.6, 1.65, 0.7, 1.1, 0.95, 0.95];
         const totalWeight = 10.75;
         final widths = [
           for (final weight in weights) tableWidth * weight / totalWeight,
@@ -316,9 +318,9 @@ class _DeviceListPageState extends State<DeviceListPage> {
                       _tableCell(const Text('学校'), widths[1]),
                       _tableCell(const Text('位置'), widths[2]),
                       _tableCell(const Text('设备类型 / 型号'), widths[3]),
-                      _tableCell(const Text('设备状态'), widths[4]),
+                      _tableCell(const Text('设备\n状态'), widths[4]),
                       _tableCell(const Text('软件版本'), widths[5]),
-                      _tableCell(const Text('RustDesk 状态'), widths[6]),
+                      _tableCell(const Text('RustDesk\n状态'), widths[6]),
                       _tableCell(const Text('操作'), widths[7]),
                     ]),
                   ),
@@ -364,7 +366,7 @@ class _DeviceListPageState extends State<DeviceListPage> {
       ),
       child: Row(children: [
         _tableCell(
-          SelectableText(device.deviceNo, maxLines: 1),
+          SelectableText(device.deviceNo, maxLines: 2),
           widths[0],
         ),
         _tableCell(
